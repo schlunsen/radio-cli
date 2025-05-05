@@ -111,10 +111,11 @@ jobs:
           
           # Create .cargo/config file to help with finding libraries
           New-Item -ItemType Directory -Force -Path .cargo
-          Set-Content -Path ".cargo/config" -Value @"
+          $configContent = @"
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/LIBPATH:$env:VCPKG_INSTALLATION_ROOT\\installed\\x64-windows\\lib"]
 "@
+          Set-Content -Path ".cargo/config" -Value $configContent
           
           # Try several build approaches
           try {

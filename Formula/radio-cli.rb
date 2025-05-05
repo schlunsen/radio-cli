@@ -1,10 +1,10 @@
 class RadioCli < Formula
   desc "Terminal-based internet radio player with visualizations"
-  homepage "https://github.com/schlunsen/radiocli"
-  url "https://github.com/schlunsen/radiocli/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "REPLACE_WITH_ACTUAL_SHA256_AFTER_RELEASE"
+  homepage "https://github.com/schlunsen/radio-cli"
+  url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v0.01.tar.gz"
+  sha256 "12edee162e765ac593a5057b1bdf04952b8acad1d8982790a0a5b0be3ef3f71a"
   license "MIT"
-  head "https://github.com/schlunsen/radiocli.git", branch: "master"
+  head "https://github.com/schlunsen/radio-cli.git", branch: "master"
 
   depends_on "rust" => :build
   depends_on "mpv" # Required dependency for audio playback

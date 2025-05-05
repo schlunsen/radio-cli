@@ -24,11 +24,27 @@ pub fn init_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
     if count == 0 {
         let stations = vec![
             // Original stations with descriptions
-            ("Groove Salad (SomaFM)", "http://ice1.somafm.com/groovesalad-128-mp3", "Chilled electronic and downtempo beats"),
-            ("Secret Agent (SomaFM)", "http://ice4.somafm.com/secretagent-128-mp3", "The soundtrack for your stylish, mysterious, dangerous life"),
-            ("BBC Radio 1", "http://icecast.omroep.nl/radio1-bb-mp3", "BBC's flagship radio station for new music and entertainment"),
+            (
+                "Groove Salad (SomaFM)",
+                "http://ice1.somafm.com/groovesalad-128-mp3",
+                "Chilled electronic and downtempo beats",
+            ),
+            (
+                "Secret Agent (SomaFM)",
+                "http://ice4.somafm.com/secretagent-128-mp3",
+                "The soundtrack for your stylish, mysterious, dangerous life",
+            ),
+            (
+                "BBC Radio 1",
+                "http://icecast.omroep.nl/radio1-bb-mp3",
+                "BBC's flagship radio station for new music and entertainment",
+            ),
             // Added FluxFM Chillhop
-            ("FluxFM Chillhop", "https://streams.fluxfm.de/Chillhop/mp3-320/streams.fluxfm.de/", "High-quality Chillhop stream from FluxFM - relaxed beats at 320kbps"),
+            (
+                "FluxFM Chillhop",
+                "https://streams.fluxfm.de/Chillhop/mp3-320/streams.fluxfm.de/",
+                "High-quality Chillhop stream from FluxFM - relaxed beats at 320kbps",
+            ),
         ];
         for (name, url, description) in stations {
             conn.execute(
@@ -58,7 +74,11 @@ pub fn load_stations(conn: &Connection) -> Result<Vec<Station>, Box<dyn Error>> 
     Ok(stations)
 }
 
-pub fn toggle_favorite(conn: &Connection, station_id: i32, new_favorite: bool) -> Result<(), Box<dyn Error>> {
+pub fn toggle_favorite(
+    conn: &Connection,
+    station_id: i32,
+    new_favorite: bool,
+) -> Result<(), Box<dyn Error>> {
     conn.execute(
         "UPDATE stations SET favorite = ?1 WHERE id = ?2",
         params![new_favorite as i32, station_id],
@@ -66,12 +86,17 @@ pub fn toggle_favorite(conn: &Connection, station_id: i32, new_favorite: bool) -
     Ok(())
 }
 
-pub fn add_station(conn: &Connection, name: &str, url: &str, description: Option<&str>) -> Result<i32, Box<dyn Error>> {
+pub fn add_station(
+    conn: &Connection,
+    name: &str,
+    url: &str,
+    description: Option<&str>,
+) -> Result<i32, Box<dyn Error>> {
     conn.execute(
         "INSERT INTO stations (name, url, description) VALUES (?1, ?2, ?3)",
         params![name, url, description],
     )?;
-    
+
     // Get the ID of the newly inserted station
     let id: i32 = conn.last_insert_rowid() as i32;
     Ok(id)

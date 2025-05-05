@@ -3,11 +3,11 @@ use std::io;
 use std::time::Duration;
 
 use crate::audio::{AudioVisualizer, Player};
-use crate::db::{Station, toggle_favorite};
+use crate::db::{toggle_favorite, Station};
 use crate::ui;
 
 use crossterm::{
-    event::{self, Event, KeyCode, DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -55,7 +55,7 @@ impl App {
         if !stations.is_empty() {
             list_state.select(Some(0));
         }
-        
+
         // Initialize audio components
         let visualizer = AudioVisualizer::new();
         let player = Player::new();
@@ -82,36 +82,49 @@ impl App {
         if self.add_station_name.trim().is_empty() || self.add_station_url.trim().is_empty() {
             return Ok(()); // Silently ignore empty inputs
         }
-        
+
         // Add to database
-        let desc = if self.add_station_desc.is_empty() { None } else { Some(&self.add_station_desc[..]) };
-        let id = crate::db::add_station(&self.conn, &self.add_station_name, &self.add_station_url, desc)?;
-        
+        let desc = if self.add_station_desc.is_empty() {
+            None
+        } else {
+            Some(&self.add_station_desc[..])
+        };
+        let id = crate::db::add_station(
+            &self.conn,
+            &self.add_station_name,
+            &self.add_station_url,
+            desc,
+        )?;
+
         // Create new station object
         let new_station = Station {
             id,
             name: self.add_station_name.clone(),
             url: self.add_station_url.clone(),
             favorite: false,
-            description: if self.add_station_desc.is_empty() { None } else { Some(self.add_station_desc.clone()) },
+            description: if self.add_station_desc.is_empty() {
+                None
+            } else {
+                Some(self.add_station_desc.clone())
+            },
         };
-        
+
         // Add to the list
         self.stations.push(new_station);
-        
+
         // Reset input fields
         self.add_station_name.clear();
         self.add_station_url.clear();
         self.add_station_desc.clear();
         self.input_cursor = 0;
         self.input_field = 0;
-        
+
         // Return to normal mode
         self.mode = AppMode::Normal;
-        
+
         Ok(())
     }
-    
+
     // Handle input for the add station form
     pub fn handle_add_station_input(&mut self, key: KeyCode) -> Result<(), Box<dyn Error>> {
         match key {
@@ -121,24 +134,24 @@ impl App {
                 self.add_station_name.clear();
                 self.add_station_url.clear();
                 self.add_station_desc.clear();
-            },
+            }
             KeyCode::Enter => {
                 // Move to next field or save
                 match self.input_field {
                     0 => {
                         self.input_field = 1;
                         self.input_cursor = 0;
-                    },
+                    }
                     1 => {
                         self.input_field = 2;
                         self.input_cursor = 0;
-                    },
+                    }
                     2 => {
                         self.save_new_station()?;
-                    },
+                    }
                     _ => unreachable!(),
                 }
-            },
+            }
             KeyCode::Tab => {
                 // Move to next field
                 self.input_field = (self.input_field + 1) % 3;
@@ -148,17 +161,21 @@ impl App {
                     2 => self.add_station_desc.len(),
                     _ => unreachable!(),
                 };
-            },
+            }
             KeyCode::BackTab => {
                 // Move to previous field
-                self.input_field = if self.input_field == 0 { 2 } else { self.input_field - 1 };
+                self.input_field = if self.input_field == 0 {
+                    2
+                } else {
+                    self.input_field - 1
+                };
                 self.input_cursor = match self.input_field {
                     0 => self.add_station_name.len(),
                     1 => self.add_station_url.len(),
                     2 => self.add_station_desc.len(),
                     _ => unreachable!(),
                 };
-            },
+            }
             KeyCode::Backspace => {
                 // Delete character before cursor
                 if self.input_cursor > 0 {
@@ -166,19 +183,19 @@ impl App {
                         0 => {
                             self.add_station_name.remove(self.input_cursor - 1);
                             self.input_cursor -= 1;
-                        },
+                        }
                         1 => {
                             self.add_station_url.remove(self.input_cursor - 1);
                             self.input_cursor -= 1;
-                        },
+                        }
                         2 => {
                             self.add_station_desc.remove(self.input_cursor - 1);
                             self.input_cursor -= 1;
-                        },
+                        }
                         _ => unreachable!(),
                     }
                 }
-            },
+            }
             KeyCode::Delete => {
                 // Delete character at cursor
                 match self.input_field {
@@ -186,26 +203,26 @@ impl App {
                         if self.input_cursor < self.add_station_name.len() {
                             self.add_station_name.remove(self.input_cursor);
                         }
-                    },
+                    }
                     1 => {
                         if self.input_cursor < self.add_station_url.len() {
                             self.add_station_url.remove(self.input_cursor);
                         }
-                    },
+                    }
                     2 => {
                         if self.input_cursor < self.add_station_desc.len() {
                             self.add_station_desc.remove(self.input_cursor);
                         }
-                    },
+                    }
                     _ => unreachable!(),
                 }
-            },
+            }
             KeyCode::Left => {
                 // Move cursor left
                 if self.input_cursor > 0 {
                     self.input_cursor -= 1;
                 }
-            },
+            }
             KeyCode::Right => {
                 // Move cursor right
                 let max_cursor = match self.input_field {
@@ -217,42 +234,42 @@ impl App {
                 if self.input_cursor < max_cursor {
                     self.input_cursor += 1;
                 }
-            },
+            }
             KeyCode::Char(c) => {
                 // Add character at cursor
                 match self.input_field {
                     0 => {
                         self.add_station_name.insert(self.input_cursor, c);
                         self.input_cursor += 1;
-                    },
+                    }
                     1 => {
                         self.add_station_url.insert(self.input_cursor, c);
                         self.input_cursor += 1;
-                    },
+                    }
                     2 => {
                         self.add_station_desc.insert(self.input_cursor, c);
                         self.input_cursor += 1;
-                    },
+                    }
                     _ => unreachable!(),
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
-        
+
         Ok(())
     }
-    
+
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
             // Update visualization
             self.visualizer.update();
-            
+
             // Draw UI - pass individual fields to avoid borrow checker issues
             self.terminal.draw(|f| {
                 ui::ui(
-                    f, 
-                    &self.stations, 
-                    &mut self.list_state, 
+                    f,
+                    &self.stations,
+                    &mut self.list_state,
                     &self.visualizer,
                     &self.mode,
                     &self.add_station_name,
@@ -271,11 +288,15 @@ impl App {
                             KeyCode::Char('q') => {
                                 // Quit application
                                 break;
-                            },
+                            }
                             KeyCode::Down => {
                                 // Navigate down
                                 if let Some(i) = self.list_state.selected() {
-                                    let next = if i + 1 < self.stations.len() { i + 1 } else { i };
+                                    let next = if i + 1 < self.stations.len() {
+                                        i + 1
+                                    } else {
+                                        i
+                                    };
                                     self.list_state.select(Some(next));
                                 }
                             }
@@ -300,17 +321,17 @@ impl App {
                                 if let Some(i) = self.list_state.selected() {
                                     let station = &self.stations[i];
                                     let _ = self.player.play_station(
-                                        station.name.clone(), 
-                                        station.url.clone(), 
-                                        &self.visualizer
+                                        station.name.clone(),
+                                        station.url.clone(),
+                                        &self.visualizer,
                                     );
                                 }
-                            },
+                            }
                             KeyCode::Char('s') => {
                                 // Stop playback
                                 self.player.stop();
                                 self.visualizer.set_playing(false);
-                            },
+                            }
                             KeyCode::Char('a') => {
                                 // Switch to add station mode
                                 self.mode = AppMode::AddingStation;
@@ -319,12 +340,12 @@ impl App {
                                 self.add_station_desc.clear();
                                 self.input_cursor = 0;
                                 self.input_field = 0;
-                            },
+                            }
                             _ => {}
                         },
                         AppMode::AddingStation => {
                             self.handle_add_station_input(key.code)?;
-                        },
+                        }
                     }
                 }
             }
@@ -341,9 +362,13 @@ impl App {
 
         // Restore terminal
         disable_raw_mode()?;
-        execute!(self.terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+        execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
         self.terminal.show_cursor()?;
-        
+
         Ok(())
     }
 }

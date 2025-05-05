@@ -52,4 +52,4 @@ jobs:
         run: |
           git add Formula/radio-cli.rb
           git commit -m "Update formula to v${{ env.VERSION }}"
-          git push origin ${GITHUB_REF%%/*}/main
+          git push origin main

@@ -65,3 +65,14 @@ pub fn toggle_favorite(conn: &Connection, station_id: i32, new_favorite: bool) -
     )?;
     Ok(())
 }
+
+pub fn add_station(conn: &Connection, name: &str, url: &str, description: Option<&str>) -> Result<i32, Box<dyn Error>> {
+    conn.execute(
+        "INSERT INTO stations (name, url, description) VALUES (?1, ?2, ?3)",
+        params![name, url, description],
+    )?;
+    
+    // Get the ID of the newly inserted station
+    let id: i32 = conn.last_insert_rowid() as i32;
+    Ok(id)
+}

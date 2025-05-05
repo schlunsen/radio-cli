@@ -20,13 +20,24 @@ echo_color() {
 # Check if a version is provided
 if [ $# -ne 1 ]; then
   echo_color $RED "Usage: $0 VERSION"
-  echo_color $YELLOW "Example: $0 0.7"
+  echo_color $YELLOW "Examples:"
+  echo_color $YELLOW "  $0 0.8      # Creates version 0.8.0"
+  echo_color $YELLOW "  $0 0.8.1    # Creates version 0.8.1"
+  echo_color $YELLOW "  $0 1.0.0    # Creates version 1.0.0"
   exit 1
 fi
 
 VERSION=$1
-VERSION_NUM="0.0.$VERSION"
-TAG="v0.$VERSION"
+# Check if version already has dots
+if [[ $VERSION == *"."* ]]; then
+  # User provided a full version like 0.8.0
+  VERSION_NUM="$VERSION"
+  TAG="v$VERSION"
+else
+  # User provided a short version like 0.8
+  VERSION_NUM="0.$VERSION.0"
+  TAG="v0.$VERSION"
+fi
 
 echo_color $GREEN "=== Creating release for Radio CLI $TAG (version $VERSION_NUM) ==="
 

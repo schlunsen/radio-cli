@@ -50,6 +50,15 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install sqlite mpv
+          
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          vcpkg install sqlite3:x64-windows mpv:x64-windows
+          echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
+          echo "SQLITE3_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
+          echo "LIBMPV_STATIC=0" >> $env:GITHUB_ENV
+          echo "RUSTFLAGS=-L $env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -81,10 +90,17 @@ jobs:
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cargo build --release --target ${{ matrix.target }}
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
-          cd dist && 7z a -tzip ../${{ matrix.asset_name }}.zip ${{ matrix.binary_name }}
+          # Set environment variables for the build
+          $env:SQLITE3_LIB_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+          $env:SQLITE3_INCLUDE_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
+          
+          cargo build --release --target ${{ matrix.target }} --verbose
+          
+          # Create dist directory and copy binary
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target\${{ matrix.target }}\release\${{ matrix.binary_name }} -Destination dist\
+          cd dist
+          7z a -tzip ..\${{ matrix.asset_name }}.zip ${{ matrix.binary_name }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

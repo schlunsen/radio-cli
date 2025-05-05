@@ -43,7 +43,8 @@ echo_color $GREEN "=== Creating release for Radio CLI $TAG (version $VERSION_NUM
 
 # 1. Update version in Cargo.toml
 echo_color $YELLOW "1. Updating version in Cargo.toml to $VERSION_NUM..."
-sed -i '' "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$VERSION_NUM\"/" Cargo.toml
+# This will match version patterns like "0.0.0.7" or "0.7.0"
+sed -i '' "s/version = \"[0-9.]*\"/version = \"$VERSION_NUM\"/" Cargo.toml
 
 # 2. Commit the version change
 echo_color $YELLOW "2. Committing version bump..."
@@ -56,7 +57,7 @@ git tag -a $TAG -m "Release version $TAG"
 
 # 4. Update the Homebrew formula with the new tag (placeholder SHA256)
 echo_color $YELLOW "4. Updating Homebrew formula..."
-sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/archive/refs/tags/v[0-9]*\\.[0-9]*.tar.gz\"|url \"https://github.com/schlunsen/radio-cli/archive/refs/tags/$TAG.tar.gz\"|" Formula/radio-cli.rb
+sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/archive/refs/tags/v[0-9.]*\.tar\.gz\"|url \"https://github.com/schlunsen/radio-cli/archive/refs/tags/$TAG.tar.gz\"|" Formula/radio-cli.rb
 sed -i '' "s|sha256 \"[a-z0-9]*\"|sha256 \"REPLACE_AFTER_PUSHING_TAG\"|" Formula/radio-cli.rb
 
 # Also update the macOS Intel binary URL

@@ -1,47 +1,63 @@
 class RadioCli < Formula
   desc "Terminal-based internet radio player with visualizations"
   homepage "https://github.com/schlunsen/radio-cli"
-  url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v0.6.tar.gz"
-  sha256 "7811e7a96a50e1337312ecb5f2118a840bc2616ec72948c56eaf4afde34d775e"
+  url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v0.0.7.tar.gz"
+  sha256 "REPLACE_AFTER_PUSHING_TAG"
   license "MIT"
   head "https://github.com/schlunsen/radio-cli.git", branch: "master"
+  
+  on_macos do
+    if Hardware::CPU.intel?
+      url "https://github.com/schlunsen/radio-cli/releases/download/v0.0.7/radio_cli-macos-amd64"
+      sha256 "REPLACE_AFTER_PUSHING_TAG"
+    end
+    # Add ARM support when available
+    # if Hardware::CPU.arm?
+    #   url "https://github.com/schlunsen/radio-cli/releases/download/v0.6/radio_cli-macos-arm64"
+    #   sha256 "..."
+    # end
+  end
 
-  depends_on "rust" => :build
+  depends_on "rust" => :build unless OS.mac? && Hardware::CPU.intel?
   depends_on "mpv" # Required dependency for audio playback
   depends_on "sqlite" # For database access
 
   def install
-    # Find the radio_cli directory - we need to handle different structures
-    # Homebrew unpacks GitHub releases to directories like "radio-cli-0.02"
-    radio_cli_dir = if Dir.exist?("radio_cli")
-                      "radio_cli"
-                    else
-                      # We're directly in the unpacked directory
-                      "."
-                    end
-
-    # The database is now managed by the application itself
-    
-    # Database path is now managed by the application itself
-    
-    # Build and install
-    cargo_dir = if File.exist?("#{radio_cli_dir}/Cargo.toml")
-                  radio_cli_dir
-                else
-                  "."
-                end
-    
-    cd cargo_dir do
-      system "cargo", "build", "--release"
+    if OS.mac? && Hardware::CPU.intel?
+      # Install prebuilt binary for Intel Mac
+      bin.install "radio_cli-macos-amd64" => "radio_cli"
+    else
+      # Build from source for other platforms
+      # Find the radio_cli directory - we need to handle different structures
+      # Homebrew unpacks GitHub releases to directories like "radio-cli-0.02"
+      radio_cli_dir = if Dir.exist?("radio_cli")
+                        "radio_cli"
+                      else
+                        # We're directly in the unpacked directory
+                        "."
+                      end
       
-      # Find the compiled binary
-      binary_path = if File.exist?("target/release/radio_cli")
-                      "target/release/radio_cli"
-                    else
-                      odie "Could not find compiled binary"
-                    end
+      # The database is now managed by the application itself
       
-      bin.install binary_path
+      # Build and install
+      cargo_dir = if File.exist?("#{radio_cli_dir}/Cargo.toml")
+                    radio_cli_dir
+                  else
+                    "."
+                  end
+      
+      cd cargo_dir do
+        system "cargo", "build", "--release"
+        
+        # Find the compiled binary
+        binary_path = if File.exist?("target/release/radio_cli")
+                        "target/release/radio_cli"
+                      else
+                        odie "Could not find compiled binary"
+                      end
+        
+        bin.install binary_path
+      end
     end
     
     # Create a symlink with a hyphenated name

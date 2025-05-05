@@ -13,6 +13,7 @@ use ratatui::{
     Frame,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn ui(
     f: &mut Frame,
     stations: &[Station],
@@ -132,11 +133,7 @@ pub fn ui(
                 let brightness = star.brightness * star.z.powf(1.5);
 
                 // Skip if star is out of bounds
-                if projected_x < 0.0
-                    || projected_x > 100.0
-                    || projected_y < 0.0
-                    || projected_y > 100.0
-                {
+                if !(0.0..=100.0).contains(&projected_x) || !(0.0..=100.0).contains(&projected_y) {
                     continue;
                 }
 

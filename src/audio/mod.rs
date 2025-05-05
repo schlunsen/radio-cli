@@ -174,6 +174,7 @@ impl AudioVisualizer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn update_current_song(&self, song: Option<String>) {
         if let Ok(mut state) = self.state.lock() {
             if let Some(info) = &mut state.stream_info {
@@ -232,43 +233,41 @@ impl Player {
                 let vis_state = Arc::clone(&state_handle);
                 thread::spawn(move || {
                     let reader = BufReader::new(stdout);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            // Parse the line for stream metadata
-                            if line.starts_with("STATUS:") {
-                                if let Ok(mut state) = vis_state.lock() {
-                                    // Extract metadata from the line
-                                    let parts: Vec<&str> = line.split_whitespace().collect();
-                                    let mut song = None;
-                                    let mut format = "Unknown".to_string();
-                                    let mut bitrate = "Unknown".to_string();
+                    for line in reader.lines().map_while(Result::ok) {
+                        // Parse the line for stream metadata
+                        if line.starts_with("STATUS:") {
+                            if let Ok(mut state) = vis_state.lock() {
+                                // Extract metadata from the line
+                                let parts: Vec<&str> = line.split_whitespace().collect();
+                                let mut song = None;
+                                let mut format = "Unknown".to_string();
+                                let mut bitrate = "Unknown".to_string();
 
-                                    // Parse the parts
-                                    let mut i = 1; // Start after "STATUS:"
-                                    while i < parts.len() {
-                                        if parts[i] == "FORMAT:" && i + 1 < parts.len() {
-                                            format = parts[i+1].to_string();
-                                            i += 2;
-                                        } else if parts[i] == "BITRATE:" && i + 1 < parts.len() {
-                                            bitrate = format!("{} kbps", parts[i+1]);
-                                            i += 2;
+                                // Parse the parts
+                                let mut i = 1; // Start after "STATUS:"
+                                while i < parts.len() {
+                                    if parts[i] == "FORMAT:" && i + 1 < parts.len() {
+                                        format = parts[i+1].to_string();
+                                        i += 2;
+                                    } else if parts[i] == "BITRATE:" && i + 1 < parts.len() {
+                                        bitrate = format!("{} kbps", parts[i+1]);
+                                        i += 2;
+                                    } else {
+                                        // Assume it's part of the song title
+                                        if song.is_none() {
+                                            song = Some(parts[i].to_string());
                                         } else {
-                                            // Assume it's part of the song title
-                                            if song.is_none() {
-                                                song = Some(parts[i].to_string());
-                                            } else {
-                                                song = Some(format!("{} {}", song.unwrap(), parts[i]));
-                                            }
-                                            i += 1;
+                                            song = Some(format!("{} {}", song.unwrap(), parts[i]));
                                         }
+                                        i += 1;
                                     }
+                                }
 
-                                    // Update the stream info
-                                    if let Some(info) = &mut state.stream_info {
-                                        info.format = format;
-                                        info.bitrate = bitrate;
-                                        info.current_song = song;
-                                    }
+                                // Update the stream info
+                                if let Some(info) = &mut state.stream_info {
+                                    info.format = format;
+                                    info.bitrate = bitrate;
+                                    info.current_song = song;
                                 }
                             }
                         }

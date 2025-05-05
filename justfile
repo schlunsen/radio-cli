@@ -17,6 +17,10 @@ format-check:
 lint:
     cargo clippy
 
+# Check code quality (both formatting and clippy)
+check: format-check lint
+    echo "All checks passed!"
+
 # Build the project
 build:
     cargo build

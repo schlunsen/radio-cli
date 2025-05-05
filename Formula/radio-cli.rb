@@ -77,10 +77,13 @@ class RadioCli < Formula
       or:
         radio-cli
       
-      Your station database will be automatically created in a platform-specific location:
-        macOS:   ~/Library/Application Support/radio_cli/stations.db
-        Linux:   ~/.local/share/radio_cli/stations.db
-        Windows: %APPDATA%/radio_cli/stations.db
+      Your station database will be automatically created in one of these locations (in priority order):
+        1. stations.db in the current directory (if it exists)
+        2. The location specified in the XDG_DATA_HOME environment variable
+        3. Platform-specific data directory:
+           macOS:   ~/Library/Application Support/radio_cli/stations.db
+           Linux:   ~/.local/share/radio_cli/stations.db
+           Windows: %APPDATA%/radio_cli/stations.db
     EOS
   end
   

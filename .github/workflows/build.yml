@@ -57,17 +57,13 @@ jobs:
           key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ matrix.target }}-cargo-
 
-      - name: Build (macOS ARM)
-        if: matrix.target == 'aarch64-apple-darwin'
+      - name: Add extra targets if needed
         run: |
-          rustup target add aarch64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-          mkdir -p dist
-          cp target/aarch64-apple-darwin/release/${{ matrix.binary_name }} dist/
-          cd dist && tar -czf ../${{ matrix.asset_name }}.tar.gz ${{ matrix.binary_name }}
+          if [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            rustup target add aarch64-apple-darwin
+          fi
       
-      - name: Build (macOS Intel/Linux)
-        if: matrix.target != 'aarch64-apple-darwin'
+      - name: Build
         run: |
           cargo build --release --target ${{ matrix.target }}
           mkdir -p dist

@@ -1,8 +1,8 @@
 class RadioCli < Formula
   desc "Terminal-based internet radio player with visualizations"
   homepage "https://github.com/schlunsen/radio-cli"
-  url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v0.5.tar.gz"
-  sha256 "99f4122bd30941a33f00becb64789208b6870098a329865863be6094529de4f7"
+  url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v0.6.tar.gz"
+  sha256 "REPLACE_AFTER_PUSHING_TAG"
   license "MIT"
   head "https://github.com/schlunsen/radio-cli.git", branch: "master"
 

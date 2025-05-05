@@ -74,15 +74,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: |
-            ${{ matrix.asset_name }}.tar.gz
-            ${{ matrix.asset_name }}.zip
-          if-no-files-found: ignore
+          path: ${{ matrix.asset_name }}.tar.gz
+          if-no-files-found: error
 
   release:
     name: Create Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -90,6 +90,9 @@ jobs:
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
+
+      - name: List downloaded files
+        run: find . -type f -name "*.tar.gz" -o -name "*.zip" | sort
 
       - name: Create Release
         id: create_release
@@ -99,6 +102,5 @@ jobs:
           prerelease: false
           files: |
             **/radio_cli-*.tar.gz
-            **/radio_cli-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

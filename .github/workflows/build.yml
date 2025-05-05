@@ -54,17 +54,24 @@ jobs:
       - name: Install dependencies (Windows)
         if: matrix.os == 'windows-latest'
         run: |
+          # Install SQLite using vcpkg
           vcpkg install sqlite3:x64-windows
+          
+          # Set environment variables for build
           echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
           echo "SQLITE3_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
-          echo "RUSTFLAGS=-L $env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
+          echo "SQLITE3_INCLUDE_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include" >> $env:GITHUB_ENV
           
-          # For Windows build, we need to create a build.rs file to conditionally handle MPV dependency
-          Add-Content -Path build.rs -Value @"
-fn main() {
-    println!("cargo:rustc-cfg=feature=\"skip_mpv\"");
-}
-"@
+          # Make the SQLite lib file available to the Rust linker
+          echo "RUSTFLAGS=-L $env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
+          echo "LIBSQLITE3_SYS_USE_PKG_CONFIG=0" >> $env:GITHUB_ENV
+          
+          # Create a lib directory link for Rust to find sqlite3.lib
+          $lib_dir = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+          Copy-Item -Path "$lib_dir\sqlite3.lib" -Destination "C:\Windows\System32\"
+          
+          # Enable skip_mpv feature for Windows builds
+          cargo build --release --features skip_mpv --target ${{ matrix.target }}
 
       - name: Cache cargo registry
         uses: actions/cache@v4

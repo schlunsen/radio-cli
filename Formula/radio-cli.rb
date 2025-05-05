@@ -8,24 +8,30 @@ class RadioCli < Formula
   
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/schlunsen/radio-cli/releases/download/v0.9.1/radio_cli-macos-amd64"
+      url "https://github.com/schlunsen/radio-cli/releases/download/v0.9.1/radio_cli-macos-intel.tar.gz"
       sha256 "acf06a6a88f3a669c477282c5490baab0712edb61617f3d5e9b79ccec47cbf2f"
     end
-    # Add ARM support when available
-    # if Hardware::CPU.arm?
-    #   url "https://github.com/schlunsen/radio-cli/releases/download/v0.6/radio_cli-macos-arm64"
-    #   sha256 "..."
-    # end
+    if Hardware::CPU.arm?
+      url "https://github.com/schlunsen/radio-cli/releases/download/v0.9.1/radio_cli-macos-apple-silicon.tar.gz"
+      sha256 "acf06a6a88f3a669c477282c5490baab0712edb61617f3d5e9b79ccec47cbf2f"
+    end
   end
 
-  depends_on "rust" => :build unless OS.mac? && Hardware::CPU.intel?
+  depends_on "rust" => :build unless OS.mac? # Only needed for Linux builds now
   depends_on "mpv" # Required dependency for audio playback
   depends_on "sqlite" # For database access
 
   def install
-    if OS.mac? && Hardware::CPU.intel?
-      # Install prebuilt binary for Intel Mac
-      bin.install "radio_cli-macos-amd64" => "radio_cli"
+    if OS.mac?
+      if Hardware::CPU.intel?
+        # Install prebuilt binary for Intel Mac
+        system "tar", "-xzf", "radio_cli-macos-intel.tar.gz"
+        bin.install "radio_cli" => "radio_cli"
+      elsif Hardware::CPU.arm?
+        # Install prebuilt binary for Apple Silicon (M1/M2/M3/M4)
+        system "tar", "-xzf", "radio_cli-macos-apple-silicon.tar.gz"
+        bin.install "radio_cli" => "radio_cli"
+      end
     else
       # Build from source for other platforms
       # Find the radio_cli directory - we need to handle different structures

@@ -211,6 +211,22 @@ impl Player {
         // Get the shared state handle for the background thread
         let state_handle = visualizer.get_state_handle();
 
+        #[cfg(feature = "skip_mpv")]
+        {
+            // Simulation mode for Windows builds without MPV
+            visualizer.set_stream_info(
+                station_name.clone(),
+                "Simulated".to_string(),
+                "Demo Mode".to_string(),
+            );
+            visualizer.set_playing(true);
+
+            // No actual player process in simulation mode
+            // Just simulate playing
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "skip_mpv"))]
         match Command::new("mpv")
             .arg("--term-status-msg=STATUS: ${metadata/StreamTitle:} FORMAT: ${audio-codec} BITRATE: ${audio-bitrate}")
             .arg(url)
@@ -290,8 +306,15 @@ impl Player {
     }
 
     pub fn stop(&mut self) {
+        #[cfg(not(feature = "skip_mpv"))]
         if let Some(mut player) = self.current_player.take() {
             let _ = player.kill();
+        }
+
+        #[cfg(feature = "skip_mpv")]
+        {
+            // Nothing to stop in simulation mode
+            self.current_player = None;
         }
     }
 }

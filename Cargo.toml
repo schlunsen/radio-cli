@@ -11,6 +11,10 @@ license = "MIT"
 keywords = ["terminal", "radio", "audio", "tui", "visualization"]
 categories = ["command-line-utilities", "multimedia"]
 
+[features]
+default = []
+skip_mpv = []
+
 [dependencies]
 rusqlite = "0.26"
 crossterm = "0.26"

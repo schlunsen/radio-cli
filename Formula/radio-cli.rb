@@ -10,67 +10,50 @@ class RadioCli < Formula
   depends_on "mpv" # Required dependency for audio playback
 
   def install
-    # Build and install the binary using a more direct approach
+    # Modify the app/mod.rs file to use a fixed database path
+    db_path = var/"radio_cli/stations.db"
+    
     cd "radio_cli" do
-      # First, build the release version
-      system "cargo", "build", "--release"
+      # Create the var directory to store the database
+      (var/"radio_cli").mkpath
       
-      # Then, install the binary to the bin directory
+      # Copy the database file to the var directory
+      (var/"radio_cli").install "stations.db"
+      
+      # Patch the source code to use the correct database path
+      inreplace "src/app/mod.rs", 
+                "let conn = Connection::open(\"stations.db\")?;", 
+                "let conn = Connection::open(\"#{db_path}\")?"
+      
+      # Build and install
+      system "cargo", "build", "--release"
       bin.install "target/release/radio_cli"
       
-      # Install the stations database to the share directory
-      share.install "stations.db"
-      
-      # Create a wrapper script to run radio_cli with the correct database path
-      wrapper_script = <<~EOS
-        #!/bin/bash
-        DB_PATH="#{share}/stations.db"
-        
-        # Check if local stations.db exists in the current directory
-        if [ -f "./stations.db" ]; then
-          # Use the local database
-          exec "#{bin}/radio_cli" "$@" 
-        else
-          # Copy the shared database to the user's home directory if it doesn't exist
-          USER_DB="$HOME/.radio_cli/stations.db"
-          mkdir -p "$HOME/.radio_cli"
-          
-          if [ ! -f "$USER_DB" ]; then
-            cp "#{share}/stations.db" "$USER_DB"
-          fi
-          
-          # Change to the home directory and run the program
-          cd "$HOME/.radio_cli"
-          exec "#{bin}/radio_cli" "$@"
-        fi
-      EOS
-      
-      # Write the wrapper script to bin directory
-      (bin/"radio-cli").write wrapper_script
-      chmod 0755, bin/"radio-cli"
+      # Create a symlink with a hyphenated name (optional)
+      bin.install_symlink "radio_cli" => "radio-cli"
     end
-
-    # Install shell completions if you add them later
-    # bash_completion.install "radio_cli/completions/radio_cli.bash"
-    # zsh_completion.install "radio_cli/completions/radio_cli.zsh"
-    # fish_completion.install "radio_cli/completions/radio_cli.fish"
   end
 
   test do
-    # Test that the binary runs and outputs the expected version
-    assert_match "RadioCLI", shell_output("#{bin}/radio_cli --version")
+    system bin/"radio_cli", "--version"
   end
 
-  # Show a message after installation to inform users about MPV
   def caveats
     <<~EOS
       Radio CLI uses mpv for audio playback, which has been automatically installed as a dependency.
       
-      To start listening to radio stations, simply run:
+      To start listening to radio stations, run either:
+        radio_cli
+      or:
         radio-cli
       
-      The station database is stored in $HOME/.radio_cli/stations.db
-      Any stations you add will be saved there.
+      Your station database is stored at:
+        #{var}/radio_cli/stations.db
     EOS
+  end
+  
+  # Ensure the var directory persists across upgrades
+  def plist_name
+    "com.schlunsen.radio-cli"
   end
 end

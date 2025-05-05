@@ -106,10 +106,33 @@ jobs:
           # Create dist directory and copy binary
           New-Item -ItemType Directory -Force -Path dist
           
-          # The binary should already be built from the dependency step with the skip_mpv feature
-          # Check if it exists, if not build it again
-          if (-not (Test-Path "target\${{ matrix.target }}\release\${{ matrix.binary_name }}")) {
-            Write-Host "Binary not found, building again with skip_mpv feature"
+          # Force a clean build with skip_mpv feature
+          Write-Host "Building with skip_mpv feature for Windows"
+          
+          # Create .cargo/config file to help with finding libraries
+          New-Item -ItemType Directory -Force -Path .cargo
+          Set-Content -Path ".cargo/config" -Value @"
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/LIBPATH:$env:VCPKG_INSTALLATION_ROOT\\installed\\x64-windows\\lib"]
+"@
+          
+          # Try several build approaches
+          try {
+            # Attempt 1: Build with skip_mpv feature and clean environment
+            cargo clean
+            cargo build --release --features skip_mpv --target ${{ matrix.target }} --verbose
+          }
+          catch {
+            Write-Host "First build attempt failed, trying alternative approach..."
+            
+            # Attempt 2: Install SQLite3 via vcpkg again with explicit paths
+            vcpkg install sqlite3:x64-windows --triplet=x64-windows
+            
+            $env:SQLITE3_LIB_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+            $env:SQLITE3_INCLUDE_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
+            $env:RUSTFLAGS = "-L$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+            
+            cargo clean
             cargo build --release --features skip_mpv --target ${{ matrix.target }} --verbose
           }
           

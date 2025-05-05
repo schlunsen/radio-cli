@@ -89,7 +89,7 @@ class RadioCli < Formula
     if app_mod_path
       inreplace app_mod_path, 
                 'let conn = Connection::open("stations.db")?;', 
-                "let conn = Connection::open(\"#{db_path}\")?"
+                "let conn = Connection::open(\"#{db_path}\")?;"
     else
       odie "Could not find any file with database connection"
     end

@@ -103,14 +103,16 @@ jobs:
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          # Set environment variables for the build
-          $env:SQLITE3_LIB_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
-          $env:SQLITE3_INCLUDE_DIR = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
-          
-          cargo build --release --target ${{ matrix.target }} --verbose
-          
           # Create dist directory and copy binary
           New-Item -ItemType Directory -Force -Path dist
+          
+          # The binary should already be built from the dependency step with the skip_mpv feature
+          # Check if it exists, if not build it again
+          if (-not (Test-Path "target\${{ matrix.target }}\release\${{ matrix.binary_name }}")) {
+            Write-Host "Binary not found, building again with skip_mpv feature"
+            cargo build --release --features skip_mpv --target ${{ matrix.target }} --verbose
+          }
+          
           Copy-Item target\${{ matrix.target }}\release\${{ matrix.binary_name }} -Destination dist\
           cd dist
           7z a -tzip ..\${{ matrix.asset_name }}.zip ${{ matrix.binary_name }}

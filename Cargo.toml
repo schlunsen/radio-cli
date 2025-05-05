@@ -1,11 +1,11 @@
 [package]
 name = "radio_cli"
-version = "0.1.0"
+version = "0.0.2"
 edition = "2021"
 authors = ["schlunsen"]
 description = "Terminal-based internet radio player with visualizations"
-homepage = "https://github.com/schlunsen/radiocli"
-repository = "https://github.com/schlunsen/radiocli"
+homepage = "https://github.com/schlunsen/radio-cli"
+repository = "https://github.com/schlunsen/radio-cli"
 readme = "README.md"
 license = "MIT"
 keywords = ["terminal", "radio", "audio", "tui", "visualization"]

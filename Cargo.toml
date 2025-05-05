@@ -1,0 +1,10 @@
+ [package]
+ name = "radio_cli"
+ version = "0.1.0"
+ edition = "2021"
+
+ [dependencies]
+ rusqlite = "0.26"
+ crossterm = "0.26"
+ ratatui = "0.24"
+ rand = "0.8"

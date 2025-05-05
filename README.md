@@ -1,5 +1,8 @@
 # RadioCLI 📻
 
+[![Build Status](https://github.com/schlunsen/radiocli/actions/workflows/build.yml/badge.svg)](https://github.com/schlunsen/radiocli/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A feature-rich terminal-based internet radio player built with Rust and [ratatui](https://github.com/ratatui-org/ratatui).
 
 Developed by [schlunsen](https://github.com/schlunsen)
@@ -22,6 +25,19 @@ Developed by [schlunsen](https://github.com/schlunsen)
 
 ## Installation
 
+### Using Homebrew (macOS and Linux)
+
+The easiest way to install RadioCLI is with Homebrew:
+
+```bash
+brew tap schlunsen/radio-cli https://github.com/schlunsen/radiocli
+brew install radio-cli
+```
+
+For more details, see the [Homebrew installation guide](./HOMEBREW.md).
+
+### Manual Installation
+
 Clone the repository:
 
 ```bash
@@ -32,7 +48,6 @@ cd radiocli
 Build and run:
 
 ```bash
-cd radio_cli
 cargo build --release
 cargo run --release
 ```
@@ -40,7 +55,7 @@ cargo run --release
 Or install directly with:
 
 ```bash
-cargo install --path ./radio_cli
+cargo install --path .
 ```
 
 ## Usage

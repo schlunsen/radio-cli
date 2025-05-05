@@ -1,5 +1,7 @@
 use std::error::Error;
+use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::audio::{AudioVisualizer, Player};
@@ -38,8 +40,16 @@ pub struct App {
 
 impl App {
     pub fn new() -> Result<Self, Box<dyn Error>> {
+        // Get the database path
+        let db_path = get_database_path()?;
+
+        // Ensure the directory exists
+        if let Some(parent) = db_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
         // Set up database
-        let conn = Connection::open("stations.db")?;
+        let conn = Connection::open(&db_path)?;
         crate::db::init_db(&conn)?;
         let stations = crate::db::load_stations(&conn)?;
 
@@ -50,13 +60,13 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        // Initialize list state
+        // Create app state
         let mut list_state = ListState::default();
         if !stations.is_empty() {
-            list_state.select(Some(0));
+            list_state.select(Some(0)); // Start with the first station selected
         }
 
-        // Initialize audio components
+        // Create visualization and player components
         let visualizer = AudioVisualizer::new();
         let player = Player::new();
 
@@ -76,195 +86,10 @@ impl App {
         })
     }
 
-    // Add a method to save the station
-    pub fn save_new_station(&mut self) -> Result<(), Box<dyn Error>> {
-        // Validate inputs
-        if self.add_station_name.trim().is_empty() || self.add_station_url.trim().is_empty() {
-            return Ok(()); // Silently ignore empty inputs
-        }
-
-        // Add to database
-        let desc = if self.add_station_desc.is_empty() {
-            None
-        } else {
-            Some(&self.add_station_desc[..])
-        };
-        let id = crate::db::add_station(
-            &self.conn,
-            &self.add_station_name,
-            &self.add_station_url,
-            desc,
-        )?;
-
-        // Create new station object
-        let new_station = Station {
-            id,
-            name: self.add_station_name.clone(),
-            url: self.add_station_url.clone(),
-            favorite: false,
-            description: if self.add_station_desc.is_empty() {
-                None
-            } else {
-                Some(self.add_station_desc.clone())
-            },
-        };
-
-        // Add to the list
-        self.stations.push(new_station);
-
-        // Reset input fields
-        self.add_station_name.clear();
-        self.add_station_url.clear();
-        self.add_station_desc.clear();
-        self.input_cursor = 0;
-        self.input_field = 0;
-
-        // Return to normal mode
-        self.mode = AppMode::Normal;
-
-        Ok(())
-    }
-
-    // Handle input for the add station form
-    pub fn handle_add_station_input(&mut self, key: KeyCode) -> Result<(), Box<dyn Error>> {
-        match key {
-            KeyCode::Esc => {
-                // Cancel adding station
-                self.mode = AppMode::Normal;
-                self.add_station_name.clear();
-                self.add_station_url.clear();
-                self.add_station_desc.clear();
-            }
-            KeyCode::Enter => {
-                // Move to next field or save
-                match self.input_field {
-                    0 => {
-                        self.input_field = 1;
-                        self.input_cursor = 0;
-                    }
-                    1 => {
-                        self.input_field = 2;
-                        self.input_cursor = 0;
-                    }
-                    2 => {
-                        self.save_new_station()?;
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            KeyCode::Tab => {
-                // Move to next field
-                self.input_field = (self.input_field + 1) % 3;
-                self.input_cursor = match self.input_field {
-                    0 => self.add_station_name.len(),
-                    1 => self.add_station_url.len(),
-                    2 => self.add_station_desc.len(),
-                    _ => unreachable!(),
-                };
-            }
-            KeyCode::BackTab => {
-                // Move to previous field
-                self.input_field = if self.input_field == 0 {
-                    2
-                } else {
-                    self.input_field - 1
-                };
-                self.input_cursor = match self.input_field {
-                    0 => self.add_station_name.len(),
-                    1 => self.add_station_url.len(),
-                    2 => self.add_station_desc.len(),
-                    _ => unreachable!(),
-                };
-            }
-            KeyCode::Backspace => {
-                // Delete character before cursor
-                if self.input_cursor > 0 {
-                    match self.input_field {
-                        0 => {
-                            self.add_station_name.remove(self.input_cursor - 1);
-                            self.input_cursor -= 1;
-                        }
-                        1 => {
-                            self.add_station_url.remove(self.input_cursor - 1);
-                            self.input_cursor -= 1;
-                        }
-                        2 => {
-                            self.add_station_desc.remove(self.input_cursor - 1);
-                            self.input_cursor -= 1;
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            }
-            KeyCode::Delete => {
-                // Delete character at cursor
-                match self.input_field {
-                    0 => {
-                        if self.input_cursor < self.add_station_name.len() {
-                            self.add_station_name.remove(self.input_cursor);
-                        }
-                    }
-                    1 => {
-                        if self.input_cursor < self.add_station_url.len() {
-                            self.add_station_url.remove(self.input_cursor);
-                        }
-                    }
-                    2 => {
-                        if self.input_cursor < self.add_station_desc.len() {
-                            self.add_station_desc.remove(self.input_cursor);
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            KeyCode::Left => {
-                // Move cursor left
-                if self.input_cursor > 0 {
-                    self.input_cursor -= 1;
-                }
-            }
-            KeyCode::Right => {
-                // Move cursor right
-                let max_cursor = match self.input_field {
-                    0 => self.add_station_name.len(),
-                    1 => self.add_station_url.len(),
-                    2 => self.add_station_desc.len(),
-                    _ => unreachable!(),
-                };
-                if self.input_cursor < max_cursor {
-                    self.input_cursor += 1;
-                }
-            }
-            KeyCode::Char(c) => {
-                // Add character at cursor
-                match self.input_field {
-                    0 => {
-                        self.add_station_name.insert(self.input_cursor, c);
-                        self.input_cursor += 1;
-                    }
-                    1 => {
-                        self.add_station_url.insert(self.input_cursor, c);
-                        self.input_cursor += 1;
-                    }
-                    2 => {
-                        self.add_station_desc.insert(self.input_cursor, c);
-                        self.input_cursor += 1;
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        // Main event loop
         loop {
-            // Update visualization
-            self.visualizer.update();
-
-            // Draw UI - pass individual fields to avoid borrow checker issues
+            // Draw the UI
             self.terminal.draw(|f| {
                 ui::ui(
                     f,
@@ -280,87 +105,28 @@ impl App {
                 )
             })?;
 
-            // Handle events
-            if event::poll(Duration::from_millis(100))? {
+            // Update the visualization
+            self.visualizer.update();
+
+            // Handle input
+            if crossterm::event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     match self.mode {
-                        AppMode::Normal => match key.code {
-                            KeyCode::Char('q') => {
-                                // Quit application
-                                break;
+                        AppMode::Normal => {
+                            if self.handle_normal_mode(key)? {
+                                break; // User requested exit
                             }
-                            KeyCode::Down => {
-                                // Navigate down
-                                if let Some(i) = self.list_state.selected() {
-                                    let next = if i + 1 < self.stations.len() {
-                                        i + 1
-                                    } else {
-                                        i
-                                    };
-                                    self.list_state.select(Some(next));
-                                }
-                            }
-                            KeyCode::Up => {
-                                // Navigate up
-                                if let Some(i) = self.list_state.selected() {
-                                    let prev = if i > 0 { i - 1 } else { 0 };
-                                    self.list_state.select(Some(prev));
-                                }
-                            }
-                            KeyCode::Char('f') => {
-                                // Toggle favorite
-                                if let Some(i) = self.list_state.selected() {
-                                    let station = &self.stations[i];
-                                    let new_fav = !station.favorite;
-                                    toggle_favorite(&self.conn, station.id, new_fav)?;
-                                    self.stations[i].favorite = new_fav;
-                                }
-                            }
-                            KeyCode::Enter => {
-                                // Play selected station
-                                if let Some(i) = self.list_state.selected() {
-                                    let station = &self.stations[i];
-                                    let _ = self.player.play_station(
-                                        station.name.clone(),
-                                        station.url.clone(),
-                                        &self.visualizer,
-                                    );
-                                }
-                            }
-                            KeyCode::Char('s') => {
-                                // Stop playback
-                                self.player.stop();
-                                self.visualizer.set_playing(false);
-                            }
-                            KeyCode::Char('a') => {
-                                // Switch to add station mode
-                                self.mode = AppMode::AddingStation;
-                                self.add_station_name.clear();
-                                self.add_station_url.clear();
-                                self.add_station_desc.clear();
-                                self.input_cursor = 0;
-                                self.input_field = 0;
-                            }
-                            _ => {}
-                        },
+                        }
                         AppMode::AddingStation => {
-                            self.handle_add_station_input(key.code)?;
+                            self.handle_adding_mode(key)?;
                         }
                     }
                 }
             }
         }
 
-        self.cleanup()?;
-        Ok(())
-    }
-
-    pub fn cleanup(&mut self) -> Result<(), Box<dyn Error>> {
-        // Stop any playing audio
+        // Clean up
         self.player.stop();
-        self.visualizer.set_playing(false);
-
-        // Restore terminal
         disable_raw_mode()?;
         execute!(
             self.terminal.backend_mut(),
@@ -371,4 +137,253 @@ impl App {
 
         Ok(())
     }
+
+    fn handle_normal_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<bool, Box<dyn Error>> {
+        match key.code {
+            KeyCode::Char('q') => {
+                return Ok(true); // Signal to exit the program
+            }
+            KeyCode::Char('a') => {
+                self.mode = AppMode::AddingStation;
+                self.add_station_name.clear();
+                self.add_station_url.clear();
+                self.add_station_desc.clear();
+                self.input_cursor = 0;
+                self.input_field = 0;
+            }
+            KeyCode::Down => {
+                if !self.stations.is_empty() {
+                    let i = match self.list_state.selected() {
+                        Some(i) => {
+                            if i >= self.stations.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.list_state.select(Some(i));
+                }
+            }
+            KeyCode::Up => {
+                if !self.stations.is_empty() {
+                    let i = match self.list_state.selected() {
+                        Some(i) => {
+                            if i == 0 {
+                                self.stations.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.list_state.select(Some(i));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(i) = self.list_state.selected() {
+                    if i < self.stations.len() {
+                        let station = &self.stations[i];
+                        self.player.play_station(
+                            station.name.clone(),
+                            station.url.clone(),
+                            &self.visualizer,
+                        )?;
+                    }
+                }
+            }
+            KeyCode::Char('s') => {
+                self.player.stop();
+                self.visualizer.set_playing(false);
+            }
+            KeyCode::Char('f') => {
+                if let Some(i) = self.list_state.selected() {
+                    if i < self.stations.len() {
+                        let station = &self.stations[i];
+                        let new_favorite = !station.favorite;
+                        toggle_favorite(&self.conn, station.id, new_favorite)?;
+                        // Update the local stations list
+                        self.stations = crate::db::load_stations(&self.conn)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_adding_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+            }
+            KeyCode::Tab => {
+                // Cycle through fields
+                self.input_field = (self.input_field + 1) % 3;
+                // Adjust cursor position
+                match self.input_field {
+                    0 => self.input_cursor = self.add_station_name.len(),
+                    1 => self.input_cursor = self.add_station_url.len(),
+                    2 => self.input_cursor = self.add_station_desc.len(),
+                    _ => {}
+                }
+            }
+            KeyCode::Enter => {
+                // Submit form if URL and name are not empty
+                if !self.add_station_name.is_empty() && !self.add_station_url.is_empty() {
+                    let desc = if self.add_station_desc.is_empty() {
+                        None
+                    } else {
+                        Some(self.add_station_desc.as_str())
+                    };
+
+                    crate::db::add_station(
+                        &self.conn,
+                        &self.add_station_name,
+                        &self.add_station_url,
+                        desc,
+                    )?;
+
+                    // Reload stations and return to normal mode
+                    self.stations = crate::db::load_stations(&self.conn)?;
+                    self.mode = AppMode::Normal;
+                }
+            }
+            KeyCode::Char(c) => {
+                // Add character to current field
+                match self.input_field {
+                    0 => {
+                        if self.input_cursor < self.add_station_name.len() {
+                            self.add_station_name.insert(self.input_cursor, c);
+                        } else {
+                            self.add_station_name.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    1 => {
+                        if self.input_cursor < self.add_station_url.len() {
+                            self.add_station_url.insert(self.input_cursor, c);
+                        } else {
+                            self.add_station_url.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    2 => {
+                        if self.input_cursor < self.add_station_desc.len() {
+                            self.add_station_desc.insert(self.input_cursor, c);
+                        } else {
+                            self.add_station_desc.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Backspace => {
+                // Remove character from current field
+                match self.input_field {
+                    0 => {
+                        if self.input_cursor > 0 {
+                            self.add_station_name.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    1 => {
+                        if self.input_cursor > 0 {
+                            self.add_station_url.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    2 => {
+                        if self.input_cursor > 0 {
+                            self.add_station_desc.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Left => {
+                if self.input_cursor > 0 {
+                    self.input_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let max_cursor = match self.input_field {
+                    0 => self.add_station_name.len(),
+                    1 => self.add_station_url.len(),
+                    2 => self.add_station_desc.len(),
+                    _ => 0,
+                };
+                if self.input_cursor < max_cursor {
+                    self.input_cursor += 1;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+// Function to get the database path
+pub fn get_database_path() -> Result<PathBuf, Box<dyn Error>> {
+    // First, check if stations.db exists in the current directory
+    let local_db = PathBuf::from("stations.db");
+    if local_db.exists() {
+        return Ok(local_db);
+    }
+
+    // Next, check if we have an XDG_DATA_HOME environment variable
+    let data_dir = match std::env::var_os("XDG_DATA_HOME") {
+        Some(dir) => {
+            let mut path = PathBuf::from(dir);
+            path.push("radio_cli");
+            path
+        }
+        None => {
+            // If not, use the platform-specific data directory
+            #[cfg(target_os = "macos")]
+            {
+                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                path.push("Library");
+                path.push("Application Support");
+                path.push("radio_cli");
+                path
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                path.push(".local");
+                path.push("share");
+                path.push("radio_cli");
+                path
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let mut path = dirs_next::data_dir().ok_or("Could not find data directory")?;
+                path.push("radio_cli");
+                path
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            {
+                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                path.push(".radio_cli");
+                path
+            }
+        }
+    };
+
+    // Create the directory if it doesn't exist
+    fs::create_dir_all(&data_dir)?;
+
+    // Return the path to the database file
+    let db_path = data_dir.join("stations.db");
+    Ok(db_path)
 }

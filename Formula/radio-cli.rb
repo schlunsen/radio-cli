@@ -20,79 +20,9 @@ class RadioCli < Formula
                       "."
                     end
 
-    # Debug: Print the directory structure
-    system "ls", "-la", radio_cli_dir
-    system "find", ".", "-name", "*.db"
-
-    # Use a persistent location for the database
-    db_path = var/"radio_cli/stations.db"
+    # The database is now managed by the application itself
     
-    # Create the var directory to store the database
-    (var/"radio_cli").mkpath
-    
-    # Try to find and copy the stations.db file
-    db_source = nil
-    [
-      "#{radio_cli_dir}/stations.db",
-      "stations.db",
-      "../radio_cli/stations.db"
-    ].each do |path|
-      if File.exist?(path)
-        db_source = path
-        break
-      end
-    end
-
-    if db_source
-      # Copy the database file to the var directory
-      (var/"radio_cli").install db_source
-    else
-      # Create a default database if no source is found
-      system "sqlite3", "#{var}/radio_cli/stations.db", <<~SQL
-        CREATE TABLE stations (
-          id INTEGER PRIMARY KEY,
-          name TEXT NOT NULL,
-          url TEXT NOT NULL,
-          favorite INTEGER NOT NULL DEFAULT 0,
-          description TEXT
-        );
-        INSERT INTO stations (name, url, description) VALUES 
-          ('Groove Salad (SomaFM)', 'http://ice1.somafm.com/groovesalad-128-mp3', 'Chilled electronic and downtempo beats'),
-          ('Secret Agent (SomaFM)', 'http://ice4.somafm.com/secretagent-128-mp3', 'The soundtrack for your stylish, mysterious, dangerous life'),
-          ('BBC Radio 1', 'http://icecast.omroep.nl/radio1-bb-mp3', 'BBC''s flagship radio station for new music and entertainment'),
-          ('FluxFM Chillhop', 'https://streams.fluxfm.de/Chillhop/mp3-320/streams.fluxfm.de/', 'High-quality Chillhop stream from FluxFM - relaxed beats at 320kbps');
-      SQL
-    end
-    
-    # Find and patch the app/mod.rs file
-    app_mod_path = nil
-    [
-      "#{radio_cli_dir}/src/app/mod.rs",
-      "src/app/mod.rs"
-    ].each do |path|
-      if File.exist?(path)
-        app_mod_path = path
-        break
-      end
-    end
-
-    if app_mod_path.nil?
-      # Handle the case when app/mod.rs can't be found
-      ohai "Could not find src/app/mod.rs"
-      system "find", ".", "-type", "f", "-name", "*.rs"
-      # Try another approach - look for any file containing the database connection
-      files = Utils.popen_read("grep", "-l", "Connection::open", "--include=*.rs", "-r", ".").split("\n")
-      app_mod_path = files.first unless files.empty?
-    end
-
-    # Patch the source code to use the correct database path
-    if app_mod_path
-      inreplace app_mod_path, 
-                'let conn = Connection::open("stations.db")?;', 
-                "let conn = Connection::open(\"#{db_path}\")?;"
-    else
-      odie "Could not find any file with database connection"
-    end
+    # Database path is now managed by the application itself
     
     # Build and install
     cargo_dir = if File.exist?("#{radio_cli_dir}/Cargo.toml")
@@ -131,13 +61,12 @@ class RadioCli < Formula
       or:
         radio-cli
       
-      Your station database is stored at:
-        #{var}/radio_cli/stations.db
+      Your station database will be automatically created in a platform-specific location:
+        macOS:   ~/Library/Application Support/radio_cli/stations.db
+        Linux:   ~/.local/share/radio_cli/stations.db
+        Windows: %APPDATA%/radio_cli/stations.db
     EOS
   end
   
-  # Ensure the var directory persists across upgrades
-  def plist_name
-    "com.schlunsen.radio-cli"
-  end
+  # Database persistence is now handled by the application
 end

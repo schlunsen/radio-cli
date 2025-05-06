@@ -41,16 +41,16 @@ fi
 
 echo_color $GREEN "=== Creating release for Radio CLI $TAG (version $VERSION_NUM) ==="
 
-# 1. Update version in Cargo.toml
-echo_color $YELLOW "1. Updating version in Cargo.toml to $VERSION_NUM..."
-# This will match version patterns like "0.0.0.7" or "0.7.0"
-sed -i '' "s/version = \"[0-9.]*\"/version = \"$VERSION_NUM\"/" Cargo.toml
+# 1. Update version in Cargo.toml - only package version, not dependencies
+echo_color $YELLOW "1. Updating package version in Cargo.toml to $VERSION_NUM..."
+# This will match only the first occurrence of version in [package] section
+sed -i '' "0,/version = \"[0-9.]*\"/s//version = \"$VERSION_NUM\"/" Cargo.toml
 
-# 1b. Update Cargo.lock to match the new version
-echo_color $YELLOW "1b. Updating Cargo.lock to $VERSION_NUM..."
+# 1b. Update only the radio_cli package version in Cargo.lock
+echo_color $YELLOW "1b. Updating only radio_cli version in Cargo.lock to $VERSION_NUM..."
 if [ -f "Cargo.lock" ]; then
-  # Using cargo update to regenerate the Cargo.lock file with the new version
-  cargo update --package radio_cli
+  # Update only the version of the main package without changing dependency versions
+  sed -i '' "/name = \"radio_cli\"/,/version = \"[0-9.]*\"/s/version = \"[0-9.]*\"/version = \"$VERSION_NUM\"/" Cargo.lock
 else
   echo_color $RED "Warning: Cargo.lock not found!"
 fi
@@ -119,16 +119,24 @@ MACOS_INTEL_SHA256=$(shasum -a 256 "/tmp/radio-cli-release/radio_cli-macos-intel
 echo_color $GREEN "macOS Intel binary SHA256: $MACOS_INTEL_SHA256"
 
 echo_color $YELLOW "11b. Calculating SHA256 for the macOS Apple Silicon binary..."
-curl -sL "https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-apple-silicon.tar.gz" -o "/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz"
-MACOS_ARM_SHA256=$(shasum -a 256 "/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz" | cut -d ' ' -f 1)
-echo_color $GREEN "macOS Apple Silicon binary SHA256: $MACOS_ARM_SHA256"
+echo_color $YELLOW "Downloading from: https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-apple-silicon.tar.gz"
+curl -sL "https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-apple-silicon.tar.gz" -o "/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz" --retry 3
+MACSHA="/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz"
+echo_color $GREEN "Download complete, calculating checksum for file: $MACSHA"
+if [ -f "$MACSHA" ]; then
+  MACOS_ARM_SHA256=$(shasum -a 256 "$MACSHA" | cut -d ' ' -f 1)
+  echo_color $GREEN "macOS Apple Silicon binary SHA256: $MACOS_ARM_SHA256"
+else
+  echo_color $RED "ERROR: Apple Silicon binary download failed!"
+  exit 1
+fi
 
 # 12. Update the formula with the macOS binary SHA256 values
 echo_color $YELLOW "12. Updating formula with macOS binary SHA256 values..."
 # Update Intel binary SHA256
-sed -i '' "/macos-intel-binary/,/end/ s|sha256 \"REPLACE_AFTER_BUILDING\"|sha256 \"$MACOS_INTEL_SHA256\"|" Formula/radio-cli.rb
+sed -i '' "/Hardware::CPU.intel?/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_INTEL_SHA256\"|" Formula/radio-cli.rb
 # Update Apple Silicon binary SHA256
-sed -i '' "/macos-arm-binary/,/end/ s|sha256 \"REPLACE_AFTER_BUILDING\"|sha256 \"$MACOS_ARM_SHA256\"|" Formula/radio-cli.rb
+sed -i '' "/Hardware::CPU.arm?/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_ARM_SHA256\"|" Formula/radio-cli.rb
 git add Formula/radio-cli.rb
 git commit -m "Update macOS binary SHA256 values for $TAG"
 git push origin main

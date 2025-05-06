@@ -2,18 +2,18 @@ class RadioCli < Formula
   desc "Terminal-based internet radio player with visualizations"
   homepage "https://github.com/schlunsen/radio-cli"
   url "https://github.com/schlunsen/radio-cli/archive/refs/tags/v1.3.2.tar.gz"
-  sha256 "REPLACE_AFTER_PUSHING_TAG"
+  sha256 "740241ecf5ac14be62e35e7c5a402b47eb552c992001a2aa5877da773d2bc369"
   license "MIT"
   head "https://github.com/schlunsen/radio-cli.git", branch: "master"
   
   on_macos do
     if Hardware::CPU.intel?
       url "https://github.com/schlunsen/radio-cli/releases/download/v1.3.2/radio_cli-macos-intel.tar.gz"
-      sha256 "REPLACE_AFTER_PUSHING_TAG"
+      sha256 "740241ecf5ac14be62e35e7c5a402b47eb552c992001a2aa5877da773d2bc369"
     end
     if Hardware::CPU.arm?
       url "https://github.com/schlunsen/radio-cli/releases/download/v1.3.2/radio_cli-macos-apple-silicon.tar.gz"
-      sha256 "REPLACE_AFTER_PUSHING_TAG"
+      sha256 "740241ecf5ac14be62e35e7c5a402b47eb552c992001a2aa5877da773d2bc369"
     end
   end
 

@@ -39,6 +39,7 @@ pub enum AppMode {
     EditingStation,
     VisualizationMenu,
     DeletingStation,
+    RcastStations,
 }
 
 pub struct App {
@@ -61,6 +62,9 @@ pub struct App {
     pub edit_station_url: String,
     pub edit_station_desc: String,
     pub confirm_delete: bool, // Whether the user has confirmed deletion
+    pub rcast_stations: Vec<crate::rcast::RcastStation>, // List of stations from RCast.net
+    pub rcast_list_state: ListState, // State for RCast stations list
+    pub rcast_loading: bool,  // Whether we're currently loading RCast stations
 }
 
 impl App {
@@ -120,6 +124,9 @@ impl App {
             edit_station_url: String::new(),
             edit_station_desc: String::new(),
             confirm_delete: false,
+            rcast_stations: Vec::new(),
+            rcast_list_state: ListState::default(),
+            rcast_loading: false,
         })
     }
 
@@ -162,6 +169,9 @@ impl App {
                     self.input_cursor,
                     &self.vis_manager,
                     &mut self.vis_menu_state,
+                    &self.rcast_stations,
+                    &mut self.rcast_list_state,
+                    self.rcast_loading,
                 )
             })?;
 
@@ -189,6 +199,11 @@ impl App {
                         AppMode::VisualizationMenu => {
                             self.handle_vis_menu_mode(key)?;
                         }
+                        AppMode::RcastStations => {
+                            if self.handle_rcast_stations_mode(key)? {
+                                break; // User requested exit
+                            }
+                        }
                     }
                 }
             }
@@ -214,6 +229,19 @@ impl App {
         match key.code {
             KeyCode::Char('q') => {
                 return Ok(true); // Signal to exit the program
+            }
+            KeyCode::Tab => {
+                // Toggle to RcastStations mode
+                self.mode = AppMode::RcastStations;
+                // Initialize rcast stations list if empty
+                if self.rcast_stations.is_empty() {
+                    // Only refresh if there are no stations
+                    self.refresh_rcast_stations()?;
+                }
+                // Ensure a station is selected in the list
+                if !self.rcast_stations.is_empty() && self.rcast_list_state.selected().is_none() {
+                    self.rcast_list_state.select(Some(0));
+                }
             }
             KeyCode::Char('a') => {
                 self.mode = AppMode::AddingStation;
@@ -648,6 +676,163 @@ impl App {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn handle_rcast_stations_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<bool, Box<dyn Error>> {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+                // Ensure a station is selected in the normal list
+                if !self.stations.is_empty() && self.list_state.selected().is_none() {
+                    self.list_state.select(Some(0));
+                }
+            }
+            KeyCode::Tab => {
+                // Toggle back to normal mode
+                self.mode = AppMode::Normal;
+                // Ensure a station is selected in the normal list
+                if !self.stations.is_empty() && self.list_state.selected().is_none() {
+                    self.list_state.select(Some(0));
+                }
+            }
+            KeyCode::Down => {
+                if !self.rcast_stations.is_empty() {
+                    let i = match self.rcast_list_state.selected() {
+                        Some(i) => {
+                            if i >= self.rcast_stations.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.rcast_list_state.select(Some(i));
+                }
+            }
+            KeyCode::Up => {
+                if !self.rcast_stations.is_empty() {
+                    let i = match self.rcast_list_state.selected() {
+                        Some(i) => {
+                            if i == 0 {
+                                self.rcast_stations.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.rcast_list_state.select(Some(i));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(i) = self.rcast_list_state.selected() {
+                    if i < self.rcast_stations.len() {
+                        let station = &self.rcast_stations[i];
+                        self.player.play_station(
+                            station.name.clone(),
+                            station.url.clone(),
+                            &self.visualizer,
+                        )?;
+                    }
+                }
+            }
+            KeyCode::Char('r') => {
+                // Refresh the station list
+                self.refresh_rcast_stations()?;
+            }
+            KeyCode::Char('a') => {
+                // Add current station to saved stations
+                if let Some(i) = self.rcast_list_state.selected() {
+                    if i < self.rcast_stations.len() {
+                        let station = &self.rcast_stations[i];
+                        crate::db::add_station(
+                            &self.conn,
+                            &station.name,
+                            &station.url,
+                            station.description.as_deref(),
+                        )?;
+
+                        // Reload stations
+                        self.stations = crate::db::load_stations(&self.conn)?;
+                    }
+                }
+            }
+            KeyCode::Char('q') => {
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        Ok(false)
+    }
+
+    // Function to refresh the RCast stations list
+    fn refresh_rcast_stations(&mut self) -> Result<(), Box<dyn Error>> {
+        // Set the loading flag and clear current stations
+        self.rcast_loading = true;
+        self.rcast_stations.clear();
+
+        // Create a new runtime for async operations
+        match tokio::runtime::Runtime::new() {
+            Ok(rt) => {
+                // Block on the async fetch operation
+                match rt.block_on(crate::rcast::fetch_stations()) {
+                    Ok(stations) => {
+                        // Update stations with fetched data
+                        self.rcast_stations = stations;
+
+                        // If no stations fetched, add a message station
+                        if self.rcast_stations.is_empty() {
+                            self.rcast_stations.push(crate::rcast::RcastStation {
+                                name: "No stations found".to_string(),
+                                url: "".to_string(),
+                                description: Some("Try refreshing the list with 'r'".to_string()),
+                                bitrate: None,
+                                genre: None,
+                                listeners: None,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        // Add an error message station
+                        self.rcast_stations.push(crate::rcast::RcastStation {
+                            name: "Error fetching stations".to_string(),
+                            url: "".to_string(),
+                            description: Some(format!("Error: {}. Try refreshing with 'r'", e)),
+                            bitrate: None,
+                            genre: None,
+                            listeners: None,
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                // Add an error message station
+                self.rcast_stations.push(crate::rcast::RcastStation {
+                    name: "Error initializing fetcher".to_string(),
+                    url: "".to_string(),
+                    description: Some(format!("Runtime error: {}. Try refreshing with 'r'", e)),
+                    bitrate: None,
+                    genre: None,
+                    listeners: None,
+                });
+            }
+        }
+
+        // Select the first station if available
+        if !self.rcast_stations.is_empty() {
+            self.rcast_list_state.select(Some(0));
+        } else {
+            self.rcast_list_state.select(None);
+        }
+
+        // Reset loading flag
+        self.rcast_loading = false;
         Ok(())
     }
 }

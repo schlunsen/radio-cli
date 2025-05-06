@@ -46,6 +46,12 @@ pub struct VisualizationManager {
     waveforms: WaveFormsVisualization,
 }
 
+impl Default for VisualizationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VisualizationManager {
     pub fn new() -> Self {
         VisualizationManager {

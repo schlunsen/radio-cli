@@ -6,6 +6,12 @@ use std::f64::consts::PI;
 
 pub struct WaveFormsVisualization;
 
+impl Default for WaveFormsVisualization {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WaveFormsVisualization {
     pub fn new() -> Self {
         WaveFormsVisualization

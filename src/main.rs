@@ -1,6 +1,7 @@
 mod app;
 mod audio;
 mod db;
+mod rcast;
 mod ui;
 mod visualizations;
 

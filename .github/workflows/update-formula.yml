@@ -42,23 +42,33 @@ jobs:
           echo "Waiting for GitHub release to be processed..."
           sleep 10
           
-          # Download the tarball
+          # Download the source tarball
           echo "Downloading source tarball..."
           curl -L -f "https://github.com/${{ github.repository }}/archive/refs/tags/v${{ env.VERSION }}.tar.gz" -o "v${{ env.VERSION }}.tar.gz"
           
-          # Calculate SHA256
+          # Calculate SHA256 for source
           SHA256=$(shasum -a 256 "v${{ env.VERSION }}.tar.gz" | awk '{print $1}')
-          echo "SHA256: $SHA256"
+          echo "Source SHA256: $SHA256"
           echo "SHA256=$SHA256" >> $GITHUB_ENV
           
           # Download the binary for macOS Intel
           echo "Downloading macOS Intel binary..."
-          curl -L -f "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-x86_64-apple-darwin.tar.gz" -o "macos-binary.tar.gz" || echo "Warning: macOS binary not available yet"
+          curl -L -f "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-intel.tar.gz" -o "macos-intel.tar.gz" || echo "Warning: macOS Intel binary not available yet"
           
-          if [ -f "macos-binary.tar.gz" ]; then
-            MACOS_SHA256=$(shasum -a 256 "macos-binary.tar.gz" | awk '{print $1}')
-            echo "macOS binary SHA256: $MACOS_SHA256"
-            echo "MACOS_SHA256=$MACOS_SHA256" >> $GITHUB_ENV
+          if [ -f "macos-intel.tar.gz" ]; then
+            MACOS_INTEL_SHA256=$(shasum -a 256 "macos-intel.tar.gz" | awk '{print $1}')
+            echo "macOS Intel binary SHA256: $MACOS_INTEL_SHA256"
+            echo "MACOS_INTEL_SHA256=$MACOS_INTEL_SHA256" >> $GITHUB_ENV
+          fi
+          
+          # Download the binary for macOS Apple Silicon
+          echo "Downloading macOS Apple Silicon binary..."
+          curl -L -f "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-apple-silicon.tar.gz" -o "macos-arm.tar.gz" || echo "Warning: macOS Apple Silicon binary not available yet"
+          
+          if [ -f "macos-arm.tar.gz" ]; then
+            MACOS_ARM_SHA256=$(shasum -a 256 "macos-arm.tar.gz" | awk '{print $1}')
+            echo "macOS Apple Silicon binary SHA256: $MACOS_ARM_SHA256"
+            echo "MACOS_ARM_SHA256=$MACOS_ARM_SHA256" >> $GITHUB_ENV
           fi
 
       - name: Update formula
@@ -70,10 +80,17 @@ jobs:
           sed -i "/^  url \"https:/s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.SHA256 }}\"|" Formula/radio-cli.rb
           
           # Update macOS Intel binary if available
-          if [ -n "${{ env.MACOS_SHA256 }}" ]; then
+          if [ -n "${{ env.MACOS_INTEL_SHA256 }}" ]; then
             echo "Updating macOS Intel binary hash..."
-            sed -i "s|url \"https://github.com/${{ github.repository }}/releases/download/v[0-9.]*/radio_cli-macos-amd64\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-x86_64-apple-darwin.tar.gz\"|" Formula/radio-cli.rb
-            sed -i "/Hardware\.CPU\.intel/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_SHA256 }}\"|" Formula/radio-cli.rb
+            sed -i "/Hardware\.CPU\.intel/,/end/ s|url \"https://github.com/${{ github.repository }}/releases/download/v[0-9.]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-intel.tar.gz\"|" Formula/radio-cli.rb
+            sed -i "/Hardware\.CPU\.intel/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|" Formula/radio-cli.rb
+          fi
+          
+          # Update macOS Apple Silicon binary if available
+          if [ -n "${{ env.MACOS_ARM_SHA256 }}" ]; then
+            echo "Updating macOS Apple Silicon binary hash..."
+            sed -i "/Hardware\.CPU\.arm/,/end/ s|url \"https://github.com/${{ github.repository }}/releases/download/v[0-9.]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-apple-silicon.tar.gz\"|" Formula/radio-cli.rb
+            sed -i "/Hardware\.CPU\.arm/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|" Formula/radio-cli.rb
           fi
           
           # Show diff of changes

@@ -15,6 +15,93 @@ pub fn render_add_station_popup(
     input_field: usize,
     input_cursor: usize,
 ) {
+    render_station_form(
+        f,
+        "Add New Station",
+        name,
+        url,
+        description,
+        input_field,
+        input_cursor,
+    );
+}
+
+// Function to render the edit station popup
+pub fn render_edit_station_popup(
+    f: &mut Frame,
+    name: &str,
+    url: &str,
+    description: &str,
+    input_field: usize,
+    input_cursor: usize,
+) {
+    render_station_form(
+        f,
+        "Edit Station",
+        name,
+        url,
+        description,
+        input_field,
+        input_cursor,
+    );
+}
+
+// Function to render the delete station confirmation popup
+pub fn render_delete_station_popup(f: &mut Frame, station_name: &str) {
+    let size = f.size();
+
+    // Create a centered popup area
+    let popup_width = 50.min(size.width - 4);
+    let popup_height = 5.min(size.height - 4);
+
+    let popup_area = Rect {
+        x: (size.width - popup_width) / 2,
+        y: (size.height - popup_height) / 2,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    // Clear the area behind the popup
+    f.render_widget(Clear, popup_area);
+
+    // Draw the popup frame
+    let popup_block = Block::default()
+        .title("Delete Station")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .style(Style::default().bg(Color::Black));
+
+    f.render_widget(popup_block, popup_area);
+
+    // Create inner area for the text
+    let inner_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 1,
+        width: popup_area.width - 4,
+        height: popup_area.height - 2,
+    };
+
+    // Format the confirmation message
+    let message = format!(
+        "Are you sure you want to delete \"{}\"? (y/n)",
+        station_name
+    );
+
+    let text = Paragraph::new(message).style(Style::default().fg(Color::White));
+
+    f.render_widget(text, inner_area);
+}
+
+// Function to render a station form (for both add and edit)
+fn render_station_form(
+    f: &mut Frame,
+    title: &str,
+    name: &str,
+    url: &str,
+    description: &str,
+    input_field: usize,
+    input_cursor: usize,
+) {
     let size = f.size();
 
     // Create a centered popup area
@@ -33,7 +120,7 @@ pub fn render_add_station_popup(
 
     // Draw the popup frame
     let popup_block = Block::default()
-        .title("Add New Station")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow))
         .style(Style::default().bg(Color::Black));

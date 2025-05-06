@@ -195,7 +195,24 @@ impl App {
         }
 
         // Clean up
+        // Stop all audio playback and ensure all processes are terminated
         self.player.stop();
+
+        // Additional cleanup to force-kill any remaining mpv processes
+        // This ensures no orphaned processes remain when the app exits
+        #[cfg(not(feature = "skip_mpv"))]
+        {
+            // Give the normal stop method a moment to work
+            std::thread::sleep(std::time::Duration::from_millis(200));
+
+            // Final cleanup of any remaining mpv processes
+            let _ = std::process::Command::new("killall")
+                .arg("-9")
+                .arg("mpv")
+                .status();
+        }
+
+        // Restore terminal state
         disable_raw_mode()?;
         execute!(
             self.terminal.backend_mut(),

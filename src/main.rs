@@ -1,4 +1,5 @@
 mod app;
+mod assets;
 mod audio;
 mod db;
 mod ui;

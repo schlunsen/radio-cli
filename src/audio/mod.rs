@@ -3,6 +3,9 @@ use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+mod sound_effects;
+pub use sound_effects::SoundEffectManager;
 // No need for PI constant in this version
 
 #[derive(Clone)]
@@ -190,12 +193,18 @@ impl AudioVisualizer {
 
 pub struct Player {
     pub current_player: Option<Child>,
+    sound_effects: SoundEffectManager,
+    current_station: Option<String>,
+    crossfading: Arc<Mutex<bool>>,
 }
 
 impl Player {
     pub fn new() -> Self {
         Player {
             current_player: None,
+            sound_effects: SoundEffectManager::new(),
+            current_station: None,
+            crossfading: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -205,8 +214,29 @@ impl Player {
         url: String,
         visualizer: &AudioVisualizer,
     ) -> Result<(), String> {
-        // Kill any currently playing process
-        self.stop();
+        // Check if we're switching stations or starting fresh
+        let is_switching = self.current_player.is_some() && !(*self.crossfading.lock().unwrap());
+
+        // Only take the old player if we're switching and not already in a crossfade
+        let old_player = if is_switching {
+            // Keep the old player running for crossfade
+            *self.crossfading.lock().unwrap() = true;
+            self.current_player.take()
+        } else {
+            None
+        };
+
+        // Play radio tuning sound effect if we're switching stations
+        if is_switching {
+            // Play the radio tuning/static sound
+            let _ = self.sound_effects.play_tuning_sound();
+
+            // We'll keep the old station playing briefly for crossfade effect
+            // Don't sleep here, we want to start the new station in parallel
+        }
+
+        // Store the new station name
+        self.current_station = Some(station_name.clone());
 
         // Get the shared state handle for the background thread
         let state_handle = visualizer.get_state_handle();
@@ -220,6 +250,26 @@ impl Player {
                 "Demo Mode".to_string(),
             );
             visualizer.set_playing(true);
+
+            // If we're switching stations, handle crossfade in simulation mode
+            if is_switching {
+                // Keep the tuning sound playing for longer (6 seconds) with a gradual fade
+                self.sound_effects.fade_out_tuning_sound(6000);
+
+                // Create a clone of the crossfading Arc<Mutex> for the thread
+                let crossfading_clone = Arc::clone(&self.crossfading);
+
+                // Spawn a thread to simulate the crossfade delay
+                thread::spawn(move || {
+                    // Wait for the full effect duration (6.5 seconds)
+                    thread::sleep(std::time::Duration::from_millis(6500));
+
+                    // Reset the crossfading flag after the transition is complete
+                    if let Ok(mut crossfading) = crossfading_clone.lock() {
+                        *crossfading = false;
+                    }
+                });
+            }
 
             // No actual player process in simulation mode
             // Just simulate playing
@@ -244,6 +294,46 @@ impl Player {
                     "Detecting...".to_string()
                 );
                 visualizer.set_playing(true);
+
+                // If we're switching stations, handle crossfade between old and new station
+                if is_switching {
+                    // Keep a copy of the old player to kill it after a delay
+                    let old_player_option = old_player;
+                    
+                    // Keep the tuning sound playing for longer (6 seconds) with a gradual fade
+                    // This creates a more authentic radio tuning experience
+                    self.sound_effects.fade_out_tuning_sound(6000);
+                    
+                    // Create a clone of the crossfading Arc<Mutex> for the thread
+                    let crossfading_clone = Arc::clone(&self.crossfading);
+                    
+                    // Spawn a thread to kill the old player after a short delay
+                    // This creates the crossfade effect between old and new station
+                    thread::spawn(move || {
+                        // Let both stations play simultaneously for a moment (1.5 seconds)
+                        // This creates a brief period where both stations are audible
+                        thread::sleep(std::time::Duration::from_millis(1500));
+                        
+                        // Now kill the old player, ensuring it's fully terminated
+                        if let Some(mut player) = old_player_option {
+                            // Force kill with stronger termination
+                            let _ = player.kill();
+                            
+                            // Wait briefly to ensure the kill takes effect
+                            thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        
+                        // The static sound will continue playing for the rest of the 6 seconds
+                        // with the new station underneath
+                        
+                        // Reset the crossfading flag after the full transition is complete (6.5 seconds total)
+                        // This ensures the effect has fully completed before allowing another station change
+                        thread::sleep(std::time::Duration::from_millis(5000));
+                        if let Ok(mut crossfading) = crossfading_clone.lock() {
+                            *crossfading = false;
+                        }
+                    });
+                }
 
                 // Spawn a thread to read mpv output
                 let vis_state = Arc::clone(&state_handle);
@@ -294,6 +384,9 @@ impl Player {
                 Ok(())
             },
             Err(e) => {
+                // Stop any tuning sound since we failed to start playing
+                self.sound_effects.stop_tuning_sound();
+                
                 eprintln!("Failed to start player: {} (make sure mpv is installed)", e);
                 visualizer.set_stream_info(
                     station_name,
@@ -306,9 +399,16 @@ impl Player {
     }
 
     pub fn stop(&mut self) {
+        // Stop any tuning sound that might be playing, regardless of crossfade state
+        self.sound_effects.stop_tuning_sound();
+
+        // Always kill the current player to prevent orphaned processes
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(mut player) = self.current_player.take() {
+            // Force kill to ensure the process terminates
             let _ = player.kill();
+            // Wait briefly for kill to take effect
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         #[cfg(feature = "skip_mpv")]
@@ -316,5 +416,41 @@ impl Player {
             // Nothing to stop in simulation mode
             self.current_player = None;
         }
+
+        // Clear current station
+        self.current_station = None;
+
+        // Additionally, try to clean up any orphaned mpv processes
+        // This is a safety measure to prevent accumulation of processes
+        #[cfg(not(feature = "skip_mpv"))]
+        {
+            // Use killall only if we detect a potential leak
+            std::thread::spawn(|| {
+                // Sleep a moment to give normal termination a chance
+                std::thread::sleep(std::time::Duration::from_millis(200));
+
+                // Try to see if there are orphaned mpv processes
+                if let Ok(status) = std::process::Command::new("pgrep")
+                    .arg("-f")
+                    .arg("mpv.*radio_cli")
+                    .status()
+                {
+                    // If the command succeeds (there are matching processes)
+                    if status.success() {
+                        // Attempt to clean up with killall
+                        let _ = std::process::Command::new("killall")
+                            .arg("-9")
+                            .arg("mpv")
+                            .status();
+                    }
+                }
+            });
+        }
+    }
+
+    // Get the current station name if any
+    #[allow(dead_code)]
+    pub fn get_current_station(&self) -> Option<String> {
+        self.current_station.clone()
     }
 }

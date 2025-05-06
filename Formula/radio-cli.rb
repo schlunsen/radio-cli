@@ -25,11 +25,11 @@ class RadioCli < Formula
     if OS.mac?
       if Hardware::CPU.intel?
         # Install prebuilt binary for Intel Mac
-        system "tar", "-xzf", "radio_cli-macos-intel.tar.gz"
+        system "tar", "-xzf", "#{buildpath}/radio_cli-macos-intel.tar.gz"
         bin.install "radio_cli" => "radio_cli"
       elsif Hardware::CPU.arm?
         # Install prebuilt binary for Apple Silicon (M1/M2/M3/M4)
-        system "tar", "-xzf", "radio_cli-macos-apple-silicon.tar.gz"
+        system "tar", "-xzf", "#{buildpath}/radio_cli-macos-apple-silicon.tar.gz"
         bin.install "radio_cli" => "radio_cli"
       end
     else

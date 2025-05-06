@@ -5,6 +5,12 @@ use ratatui::widgets::canvas::{Context, Line, Rectangle};
 
 pub struct StarfieldVisualization;
 
+impl Default for StarfieldVisualization {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StarfieldVisualization {
     pub fn new() -> Self {
         StarfieldVisualization

@@ -5,6 +5,12 @@ use ratatui::widgets::canvas::{Context, Rectangle};
 
 pub struct BarSpectrumVisualization;
 
+impl Default for BarSpectrumVisualization {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BarSpectrumVisualization {
     pub fn new() -> Self {
         BarSpectrumVisualization

@@ -33,6 +33,12 @@ pub struct AudioState {
     pub warp_speed: f64,  // Speed factor for the starfield (0.5-3.0)
 }
 
+impl Default for AudioState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioState {
     pub fn new() -> Self {
         // Initialize stars for the starfield
@@ -141,6 +147,12 @@ pub struct AudioVisualizer {
     pub state: Arc<Mutex<AudioState>>,
 }
 
+impl Default for AudioVisualizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioVisualizer {
     pub fn new() -> Self {
         AudioVisualizer {
@@ -190,6 +202,12 @@ impl AudioVisualizer {
 
 pub struct Player {
     pub current_player: Option<Child>,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Player {

@@ -7,6 +7,7 @@ use std::time::Duration;
 use crate::audio::{AudioVisualizer, Player};
 use crate::db::{toggle_favorite, Station};
 use crate::ui;
+use crate::visualizations::VisualizationManager;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -21,6 +22,7 @@ use rusqlite::Connection;
 pub enum AppMode {
     Normal,
     AddingStation,
+    VisualizationMenu,
 }
 
 pub struct App {
@@ -36,6 +38,8 @@ pub struct App {
     pub add_station_desc: String,
     pub input_cursor: usize,
     pub input_field: usize, // 0 = name, 1 = url, 2 = description
+    pub vis_manager: VisualizationManager,
+    pub vis_menu_state: ListState, // State for visualization menu selection
 }
 
 impl App {
@@ -69,6 +73,11 @@ impl App {
         // Create visualization and player components
         let visualizer = AudioVisualizer::new();
         let player = Player::new();
+        let vis_manager = VisualizationManager::new();
+
+        // Create visualization menu state
+        let mut vis_menu_state = ListState::default();
+        vis_menu_state.select(Some(0)); // Select first visualization by default
 
         Ok(App {
             terminal,
@@ -83,6 +92,8 @@ impl App {
             add_station_desc: String::new(),
             input_cursor: 0,
             input_field: 0,
+            vis_manager,
+            vis_menu_state,
         })
     }
 
@@ -102,6 +113,8 @@ impl App {
                     &self.add_station_desc,
                     self.input_field,
                     self.input_cursor,
+                    &self.vis_manager,
+                    &mut self.vis_menu_state,
                 )
             })?;
 
@@ -119,6 +132,9 @@ impl App {
                         }
                         AppMode::AddingStation => {
                             self.handle_adding_mode(key)?;
+                        }
+                        AppMode::VisualizationMenu => {
+                            self.handle_vis_menu_mode(key)?;
                         }
                     }
                 }
@@ -153,6 +169,21 @@ impl App {
                 self.add_station_desc.clear();
                 self.input_cursor = 0;
                 self.input_field = 0;
+            }
+            KeyCode::Char('v') => {
+                self.mode = AppMode::VisualizationMenu;
+
+                // Select the current visualization in the menu
+                let current_vis_type = self.vis_manager.current_type();
+                let visualizations = self.vis_manager.get_available_visualizations();
+
+                // Find the index of the current visualization
+                for (i, (vis_type, _, _)) in visualizations.iter().enumerate() {
+                    if *vis_type == current_vis_type {
+                        self.vis_menu_state.select(Some(i));
+                        break;
+                    }
+                }
             }
             KeyCode::Down => {
                 if !self.stations.is_empty() {
@@ -214,6 +245,62 @@ impl App {
             _ => {}
         }
         Ok(false)
+    }
+
+    fn handle_vis_menu_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        let visualizations = self.vis_manager.get_available_visualizations();
+
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+            }
+            KeyCode::Enter => {
+                if let Some(selected) = self.vis_menu_state.selected() {
+                    // Apply the selected visualization
+                    if selected < visualizations.len() {
+                        let (vis_type, _, _) = visualizations[selected];
+                        self.vis_manager.set_visualization_type(vis_type);
+                    }
+                }
+                self.mode = AppMode::Normal;
+            }
+            KeyCode::Down => {
+                if !visualizations.is_empty() {
+                    let i = match self.vis_menu_state.selected() {
+                        Some(i) => {
+                            if i >= visualizations.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.vis_menu_state.select(Some(i));
+                }
+            }
+            KeyCode::Up => {
+                if !visualizations.is_empty() {
+                    let i = match self.vis_menu_state.selected() {
+                        Some(i) => {
+                            if i == 0 {
+                                visualizations.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                        None => 0,
+                    };
+                    self.vis_menu_state.select(Some(i));
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
 
     fn handle_adding_mode(

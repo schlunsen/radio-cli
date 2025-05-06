@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod db;
 mod ui;
+mod visualizations;
 
 use std::env;
 use std::error::Error;

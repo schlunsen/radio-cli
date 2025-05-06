@@ -13,7 +13,7 @@ class RadioCli < Formula
     end
     if Hardware::CPU.arm?
       url "https://github.com/schlunsen/radio-cli/releases/download/v0.9.6/radio_cli-macos-apple-silicon.tar.gz"
-      sha256 "b70af99409fd87dcbde62eaf0519655e9e664e2facba9e5528061c9e8a61dc2d"
+      sha256 "7b671effce6f2ffe97054413c329245d184da560331dd0ccaf4c8ee0c7565c83"
     end
   end
 

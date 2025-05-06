@@ -46,9 +46,18 @@ echo_color $YELLOW "1. Updating version in Cargo.toml to $VERSION_NUM..."
 # This will match version patterns like "0.0.0.7" or "0.7.0"
 sed -i '' "s/version = \"[0-9.]*\"/version = \"$VERSION_NUM\"/" Cargo.toml
 
+# 1b. Update Cargo.lock to match the new version
+echo_color $YELLOW "1b. Updating Cargo.lock to $VERSION_NUM..."
+if [ -f "Cargo.lock" ]; then
+  # Using cargo update to regenerate the Cargo.lock file with the new version
+  cargo update --package radio_cli
+else
+  echo_color $RED "Warning: Cargo.lock not found!"
+fi
+
 # 2. Commit the version change
 echo_color $YELLOW "2. Committing version bump..."
-git add Cargo.toml
+git add Cargo.toml Cargo.lock
 git commit -m "Bump version to $VERSION_NUM"
 
 # 3. Create a new tag

@@ -4,16 +4,22 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write  # This gives write permission to repository contents
+
 jobs:
   update-formula:
     name: Update Homebrew Formula
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Explicitly set write permissions for this job
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: main       # Explicitly checkout the main branch
           fetch-depth: 0  # We need the full history for tags
+          token: ${{ secrets.GITHUB_TOKEN }}  # Use the automatic token provided by GitHub
 
       - name: Set up Git
         run: |
@@ -109,6 +115,8 @@ jobs:
           git diff Formula/radio-cli.rb
 
       - name: Commit and push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Check if there are changes to commit
           if git diff --staged --quiet; then
@@ -129,7 +137,8 @@ jobs:
               fi
             fi
             
-            # Push changes
+            # Push changes using token-based authentication
+            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
             git push origin main
           else
             echo "No changes to commit"

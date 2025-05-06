@@ -82,15 +82,21 @@ jobs:
           # Update macOS Intel binary if available
           if [ -n "${{ env.MACOS_INTEL_SHA256 }}" ]; then
             echo "Updating macOS Intel binary hash..."
-            sed -i "/Hardware\.CPU\.intel/,/end/ s|url \"https://github.com/${{ github.repository }}/releases/download/v[0-9.]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-intel.tar.gz\"|" Formula/radio-cli.rb
-            sed -i "/Hardware\.CPU\.intel/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|" Formula/radio-cli.rb
+            # Update with more robust regex to handle any version number
+            sed -i "/Hardware\.CPU\.intel/,/end/ {
+              s|url \"https://github.com/${{ github.repository }}/releases/download/v[^/]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-intel.tar.gz\"|g
+              s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|g
+            }" Formula/radio-cli.rb
           fi
           
           # Update macOS Apple Silicon binary if available
           if [ -n "${{ env.MACOS_ARM_SHA256 }}" ]; then
             echo "Updating macOS Apple Silicon binary hash..."
-            sed -i "/Hardware\.CPU\.arm/,/end/ s|url \"https://github.com/${{ github.repository }}/releases/download/v[0-9.]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-apple-silicon.tar.gz\"|" Formula/radio-cli.rb
-            sed -i "/Hardware\.CPU\.arm/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|" Formula/radio-cli.rb
+            # Update with more robust regex to handle any version number
+            sed -i "/Hardware\.CPU\.arm/,/end/ {
+              s|url \"https://github.com/${{ github.repository }}/releases/download/v[^/]*/[^\"]*\"|url \"https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/radio_cli-macos-apple-silicon.tar.gz\"|g
+              s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|g
+            }" Formula/radio-cli.rb
           fi
           
           # Show diff of changes

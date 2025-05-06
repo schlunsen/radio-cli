@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "radio_cli"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "crossterm 0.26.1",
  "dirs-next",

@@ -91,19 +91,17 @@ jobs:
           # Update URLs with direct version replacement - more reliable
           sed -i "s|/download/v[0-9.]*|/download/v${{ env.VERSION }}|g" Formula/radio-cli.rb
           
-          # Now update the SHA256 hashes
+          # Update the SHA256 hashes for binaries in case we switch back to the resource model
           if [ -n "${{ env.MACOS_INTEL_SHA256 }}" ]; then
             echo "Updating macOS Intel binary hash..."
-            sed -i "/Hardware\.CPU\.intel/,/end/ {
-              s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|g
-            }" Formula/radio-cli.rb
+            sed -i "/macos-intel-binary/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|g" Formula/radio-cli.rb 2>/dev/null || true
+            sed -i "/Hardware\.CPU\.intel/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_INTEL_SHA256 }}\"|g" Formula/radio-cli.rb
           fi
           
           if [ -n "${{ env.MACOS_ARM_SHA256 }}" ]; then
             echo "Updating macOS Apple Silicon binary hash..."
-            sed -i "/Hardware\.CPU\.arm/,/end/ {
-              s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|g
-            }" Formula/radio-cli.rb
+            sed -i "/macos-arm-binary/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|g" Formula/radio-cli.rb 2>/dev/null || true
+            sed -i "/Hardware\.CPU\.arm/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"${{ env.MACOS_ARM_SHA256 }}\"|g" Formula/radio-cli.rb
           fi
           
           # Verify all URLs have the correct version

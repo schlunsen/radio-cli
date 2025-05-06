@@ -2,10 +2,7 @@ name: Build RadioCLI
 
 on:
   push:
-    branches: [ master, main ]
     tags: ['v*']
-  pull_request:
-    branches: [ master, main ]
 
 jobs:
   build:

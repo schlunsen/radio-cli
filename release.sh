@@ -70,9 +70,14 @@ sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/archive/refs/tags/v[0-
 sed -i '' "s|sha256 \"[a-z0-9]*\"|sha256 \"REPLACE_AFTER_PUSHING_TAG\"|" Formula/radio-cli.rb
 
 # Also update the macOS Intel binary URL
-sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/releases/download/v[0-9.]*/radio_cli-macos-amd64\"|url \"https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-amd64\"|" Formula/radio-cli.rb
+sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/releases/download/v[0-9.]*/radio_cli-macos-intel\.tar\.gz\"|url \"https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-intel.tar.gz\"|" Formula/radio-cli.rb
 # Set a placeholder SHA256 for the binary
 sed -i '' "/if Hardware::CPU.intel?/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"REPLACE_AFTER_BUILDING\"|" Formula/radio-cli.rb
+
+# Also update the macOS Apple Silicon binary URL
+sed -i '' "s|url \"https://github.com/schlunsen/radio-cli/releases/download/v[0-9.]*/radio_cli-macos-apple-silicon\.tar\.gz\"|url \"https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-apple-silicon.tar.gz\"|" Formula/radio-cli.rb
+# Set a placeholder SHA256 for the Apple Silicon binary
+sed -i '' "/if Hardware::CPU.arm?/,/end/ s|sha256 \"[a-f0-9]*\"|sha256 \"REPLACE_AFTER_BUILDING\"|" Formula/radio-cli.rb
 
 # 5. Commit the formula update
 echo_color $YELLOW "5. Committing formula update..."
@@ -109,17 +114,25 @@ echo_color $GREEN "    https://github.com/schlunsen/radio-cli/actions"
 echo_color $YELLOW "    You need to wait until the workflow completes and binaries are available."
 read -p "Press Enter once the GitHub Actions workflow has completed..." 
 
-# 11. Download the macOS binary and calculate SHA256
+# 11. Download the macOS binaries and calculate SHA256
 echo_color $YELLOW "11. Calculating SHA256 for the macOS Intel binary..."
-curl -sL "https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-amd64" -o "/tmp/radio-cli-release/radio_cli-macos-amd64"
-MACOS_SHA256=$(shasum -a 256 "/tmp/radio-cli-release/radio_cli-macos-amd64" | cut -d ' ' -f 1)
-echo_color $GREEN "macOS Intel binary SHA256: $MACOS_SHA256"
+curl -sL "https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-intel.tar.gz" -o "/tmp/radio-cli-release/radio_cli-macos-intel.tar.gz"
+MACOS_INTEL_SHA256=$(shasum -a 256 "/tmp/radio-cli-release/radio_cli-macos-intel.tar.gz" | cut -d ' ' -f 1)
+echo_color $GREEN "macOS Intel binary SHA256: $MACOS_INTEL_SHA256"
 
-# 12. Update the formula with the macOS binary SHA256
-echo_color $YELLOW "12. Updating formula with macOS binary SHA256..."
-sed -i '' "/if Hardware::CPU.intel?/,/end/ s|sha256 \"REPLACE_AFTER_BUILDING\"|sha256 \"$MACOS_SHA256\"|" Formula/radio-cli.rb
+echo_color $YELLOW "11b. Calculating SHA256 for the macOS Apple Silicon binary..."
+curl -sL "https://github.com/schlunsen/radio-cli/releases/download/$TAG/radio_cli-macos-apple-silicon.tar.gz" -o "/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz"
+MACOS_ARM_SHA256=$(shasum -a 256 "/tmp/radio-cli-release/radio_cli-macos-apple-silicon.tar.gz" | cut -d ' ' -f 1)
+echo_color $GREEN "macOS Apple Silicon binary SHA256: $MACOS_ARM_SHA256"
+
+# 12. Update the formula with the macOS binary SHA256 values
+echo_color $YELLOW "12. Updating formula with macOS binary SHA256 values..."
+# Update Intel binary SHA256
+sed -i '' "/if Hardware::CPU.intel?/,/end/ s|sha256 \"REPLACE_AFTER_BUILDING\"|sha256 \"$MACOS_INTEL_SHA256\"|" Formula/radio-cli.rb
+# Update Apple Silicon binary SHA256
+sed -i '' "/if Hardware::CPU.arm?/,/end/ s|sha256 \"REPLACE_AFTER_BUILDING\"|sha256 \"$MACOS_ARM_SHA256\"|" Formula/radio-cli.rb
 git add Formula/radio-cli.rb
-git commit -m "Update macOS binary SHA256 for $TAG"
+git commit -m "Update macOS binary SHA256 values for $TAG"
 git push origin main
 
 # 13. Update the tap repository

@@ -127,8 +127,10 @@ pub fn ui(
 
     // Render help area
     let help_text = match mode {
-        AppMode::Normal => "↑/↓: Navigate  ⏎: Play  s: Stop  f: Favorite  a: Add Station  v: Visualizations  q: Quit",
+        AppMode::Normal => "↑/↓: Navigate  ⏎: Play  s: Stop  f: Favorite  a: Add  e: Edit  d: Delete  v: Visualizations  q: Quit",
         AppMode::AddingStation => "Tab: Next Field  Enter: Confirm  Esc: Cancel",
+        AppMode::EditingStation => "Tab: Next Field  Enter: Save  Esc: Cancel",
+        AppMode::DeletingStation => "y: Confirm Delete  n/Esc: Cancel",
         AppMode::VisualizationMenu => "↑/↓: Navigate  Enter: Select  Esc: Cancel",
     };
 
@@ -147,6 +149,27 @@ pub fn ui(
                 input_field,
                 input_cursor,
             );
+        }
+        AppMode::EditingStation => {
+            if let Ok(app_guard) = crate::app::APP_STATE.lock() {
+                if let Some(app) = app_guard.as_ref() {
+                    popup::render_edit_station_popup(
+                        f,
+                        &app.edit_station_name,
+                        &app.edit_station_url,
+                        &app.edit_station_desc,
+                        input_field,
+                        input_cursor,
+                    );
+                }
+            }
+        }
+        AppMode::DeletingStation => {
+            if let Some(selected) = list_state.selected() {
+                if selected < stations.len() {
+                    popup::render_delete_station_popup(f, &stations[selected].name);
+                }
+            }
         }
         AppMode::VisualizationMenu => {
             vis_menu::render_visualization_menu(f, vis_manager, vis_menu_state, size);

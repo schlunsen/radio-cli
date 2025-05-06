@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::audio::{AudioVisualizer, Player};
@@ -14,15 +15,30 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use lazy_static::lazy_static;
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 use rusqlite::Connection;
+
+// Global application state for UI components to access
+lazy_static! {
+    pub static ref APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
+}
+
+// A simplified version of App for UI access
+pub struct AppState {
+    pub edit_station_name: String,
+    pub edit_station_url: String,
+    pub edit_station_desc: String,
+}
 
 // Add an enum for app modes
 #[derive(PartialEq)]
 pub enum AppMode {
     Normal,
     AddingStation,
+    EditingStation,
     VisualizationMenu,
+    DeletingStation,
 }
 
 pub struct App {
@@ -40,6 +56,11 @@ pub struct App {
     pub input_field: usize, // 0 = name, 1 = url, 2 = description
     pub vis_manager: VisualizationManager,
     pub vis_menu_state: ListState, // State for visualization menu selection
+    pub edit_station_id: i32,      // ID of the station being edited
+    pub edit_station_name: String,
+    pub edit_station_url: String,
+    pub edit_station_desc: String,
+    pub confirm_delete: bool, // Whether the user has confirmed deletion
 }
 
 impl App {
@@ -94,12 +115,38 @@ impl App {
             input_field: 0,
             vis_manager,
             vis_menu_state,
+            edit_station_id: 0,
+            edit_station_name: String::new(),
+            edit_station_url: String::new(),
+            edit_station_desc: String::new(),
+            confirm_delete: false,
         })
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        // Update global app state for UI components
+        {
+            let mut app_state = APP_STATE.lock().unwrap();
+            *app_state = Some(AppState {
+                edit_station_name: self.edit_station_name.clone(),
+                edit_station_url: self.edit_station_url.clone(),
+                edit_station_desc: self.edit_station_desc.clone(),
+            });
+        }
+
         // Main event loop
         loop {
+            // Update global app state with latest values
+            {
+                if let Ok(mut app_state) = APP_STATE.lock() {
+                    if let Some(state) = app_state.as_mut() {
+                        state.edit_station_name = self.edit_station_name.clone();
+                        state.edit_station_url = self.edit_station_url.clone();
+                        state.edit_station_desc = self.edit_station_desc.clone();
+                    }
+                }
+            }
+
             // Draw the UI
             self.terminal.draw(|f| {
                 ui::ui(
@@ -132,6 +179,12 @@ impl App {
                         }
                         AppMode::AddingStation => {
                             self.handle_adding_mode(key)?;
+                        }
+                        AppMode::EditingStation => {
+                            self.handle_editing_mode(key)?;
+                        }
+                        AppMode::DeletingStation => {
+                            self.handle_deleting_mode(key)?;
                         }
                         AppMode::VisualizationMenu => {
                             self.handle_vis_menu_mode(key)?;
@@ -169,6 +222,30 @@ impl App {
                 self.add_station_desc.clear();
                 self.input_cursor = 0;
                 self.input_field = 0;
+            }
+            KeyCode::Char('e') => {
+                // Edit selected station
+                if let Some(i) = self.list_state.selected() {
+                    if i < self.stations.len() {
+                        let station = &self.stations[i];
+                        self.mode = AppMode::EditingStation;
+                        self.edit_station_id = station.id;
+                        self.edit_station_name = station.name.clone();
+                        self.edit_station_url = station.url.clone();
+                        self.edit_station_desc = station.description.clone().unwrap_or_default();
+                        self.input_cursor = 0;
+                        self.input_field = 0;
+                    }
+                }
+            }
+            KeyCode::Char('d') => {
+                // Delete selected station
+                if let Some(i) = self.list_state.selected() {
+                    if i < self.stations.len() {
+                        self.mode = AppMode::DeletingStation;
+                        self.confirm_delete = false;
+                    }
+                }
             }
             KeyCode::Char('v') => {
                 self.mode = AppMode::VisualizationMenu;
@@ -407,6 +484,162 @@ impl App {
                     0 => self.add_station_name.len(),
                     1 => self.add_station_url.len(),
                     2 => self.add_station_desc.len(),
+                    _ => 0,
+                };
+                if self.input_cursor < max_cursor {
+                    self.input_cursor += 1;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_deleting_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+            }
+            KeyCode::Char('y') => {
+                if let Some(i) = self.list_state.selected() {
+                    if i < self.stations.len() {
+                        // Store the station ID to delete
+                        let station_id = self.stations[i].id;
+
+                        // Delete the station from the database
+                        crate::db::delete_station(&self.conn, station_id)?;
+
+                        // Reload stations and return to normal mode
+                        self.stations = crate::db::load_stations(&self.conn)?;
+                        self.mode = AppMode::Normal;
+
+                        // If the deleted station was the last one, select the previous one
+                        if !self.stations.is_empty() {
+                            if i >= self.stations.len() {
+                                self.list_state.select(Some(self.stations.len() - 1));
+                            }
+                        } else {
+                            self.list_state.select(None);
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('n') => {
+                self.mode = AppMode::Normal;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_editing_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = AppMode::Normal;
+            }
+            KeyCode::Tab => {
+                // Cycle through fields
+                self.input_field = (self.input_field + 1) % 3;
+                // Adjust cursor position
+                match self.input_field {
+                    0 => self.input_cursor = self.edit_station_name.len(),
+                    1 => self.input_cursor = self.edit_station_url.len(),
+                    2 => self.input_cursor = self.edit_station_desc.len(),
+                    _ => {}
+                }
+            }
+            KeyCode::Enter => {
+                // Submit form if URL and name are not empty
+                if !self.edit_station_name.is_empty() && !self.edit_station_url.is_empty() {
+                    let desc = if self.edit_station_desc.is_empty() {
+                        None
+                    } else {
+                        Some(self.edit_station_desc.as_str())
+                    };
+
+                    crate::db::update_station(
+                        &self.conn,
+                        self.edit_station_id,
+                        &self.edit_station_name,
+                        &self.edit_station_url,
+                        desc,
+                    )?;
+
+                    // Reload stations and return to normal mode
+                    self.stations = crate::db::load_stations(&self.conn)?;
+                    self.mode = AppMode::Normal;
+                }
+            }
+            KeyCode::Char(c) => {
+                // Add character to current field
+                match self.input_field {
+                    0 => {
+                        if self.input_cursor < self.edit_station_name.len() {
+                            self.edit_station_name.insert(self.input_cursor, c);
+                        } else {
+                            self.edit_station_name.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    1 => {
+                        if self.input_cursor < self.edit_station_url.len() {
+                            self.edit_station_url.insert(self.input_cursor, c);
+                        } else {
+                            self.edit_station_url.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    2 => {
+                        if self.input_cursor < self.edit_station_desc.len() {
+                            self.edit_station_desc.insert(self.input_cursor, c);
+                        } else {
+                            self.edit_station_desc.push(c);
+                        }
+                        self.input_cursor += 1;
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Backspace => {
+                // Remove character from current field
+                match self.input_field {
+                    0 => {
+                        if self.input_cursor > 0 {
+                            self.edit_station_name.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    1 => {
+                        if self.input_cursor > 0 {
+                            self.edit_station_url.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    2 => {
+                        if self.input_cursor > 0 {
+                            self.edit_station_desc.remove(self.input_cursor - 1);
+                            self.input_cursor -= 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Left => {
+                if self.input_cursor > 0 {
+                    self.input_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let max_cursor = match self.input_field {
+                    0 => self.edit_station_name.len(),
+                    1 => self.edit_station_url.len(),
+                    2 => self.edit_station_desc.len(),
                     _ => 0,
                 };
                 if self.input_cursor < max_cursor {

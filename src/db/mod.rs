@@ -101,3 +101,22 @@ pub fn add_station(
     let id: i32 = conn.last_insert_rowid() as i32;
     Ok(id)
 }
+
+pub fn delete_station(conn: &Connection, station_id: i32) -> Result<(), Box<dyn Error>> {
+    conn.execute("DELETE FROM stations WHERE id = ?1", params![station_id])?;
+    Ok(())
+}
+
+pub fn update_station(
+    conn: &Connection,
+    station_id: i32,
+    name: &str,
+    url: &str,
+    description: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    conn.execute(
+        "UPDATE stations SET name = ?1, url = ?2, description = ?3 WHERE id = ?4",
+        params![name, url, description, station_id],
+    )?;
+    Ok(())
+}

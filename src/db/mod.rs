@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result};
 use std::error::Error;
 use std::time::SystemTime;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Station {
     pub id: i32,
     pub name: String,
@@ -78,6 +78,9 @@ pub fn init_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn load_stations(conn: &Connection) -> Result<Vec<Station>, Box<dyn Error>> {
+    // Remove any duplicate URLs before loading stations
+    remove_duplicate_urls(conn)?;
+
     let mut stmt = conn.prepare("SELECT id, name, url, favorite, description FROM stations")?;
     let station_iter = stmt.query_map([], |row| {
         Ok(Station {
@@ -242,4 +245,51 @@ pub fn format_play_time(seconds: i64) -> String {
     } else {
         format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
     }
+}
+
+// Function to find and remove duplicate URLs in the stations database
+pub fn remove_duplicate_urls(conn: &Connection) -> Result<(), Box<dyn Error>> {
+    // First find all duplicate URLs
+    let mut find_stmt = conn.prepare(
+        "SELECT url, COUNT(*) as count, MIN(id) as min_id 
+         FROM stations 
+         GROUP BY url 
+         HAVING count > 1",
+    )?;
+
+    // Collect all duplicates first to avoid borrowing issues
+    let mut duplicates_to_process = Vec::new();
+    {
+        let duplicate_rows = find_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?, // URL
+                row.get::<_, i64>(1)?,    // Count of occurrences
+                row.get::<_, i32>(2)?,    // Minimum ID (the first occurrence)
+            ))
+        })?;
+
+        // Use flatten to process only the Ok values
+        for dup in duplicate_rows.flatten() {
+            duplicates_to_process.push(dup);
+        }
+    }
+
+    // Close the statement explicitly
+    drop(find_stmt);
+
+    // Process each duplicate URL
+    for (url, count, min_id) in duplicates_to_process {
+        // Log information about the duplicates (for debugging)
+        eprintln!("Found {} duplicate entries for URL: {}", count, url);
+
+        // Delete all occurrences of this URL except the one with the minimum ID
+        let deleted = conn.execute(
+            "DELETE FROM stations WHERE url = ?1 AND id != ?2",
+            params![url, min_id],
+        )?;
+
+        eprintln!("Removed {} duplicate entries", deleted);
+    }
+
+    Ok(())
 }

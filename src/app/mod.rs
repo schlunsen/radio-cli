@@ -865,14 +865,19 @@ impl App {
                 if let Some(i) = self.rcast_list_state.selected() {
                     if i < self.rcast_stations.len() {
                         let station = &self.rcast_stations[i];
-                        crate::db::add_station(
-                            &self.conn,
-                            &station.name,
-                            &station.url,
-                            station.description.as_deref(),
-                        )?;
 
-                        // Reload stations
+                        // Check if this URL already exists
+                        if self.find_station_id_by_url(&station.url).is_none() {
+                            // Only add the station if the URL doesn't exist yet
+                            crate::db::add_station(
+                                &self.conn,
+                                &station.name,
+                                &station.url,
+                                station.description.as_deref(),
+                            )?;
+                        }
+
+                        // Reload stations (this will also remove any duplicates)
                         self.stations = crate::db::load_stations(&self.conn)?;
                     }
                 }
@@ -908,23 +913,28 @@ impl App {
         self.visualizer.set_playing(true);
 
         // Then handle the station ID for stats tracking
-        let station_id = match crate::db::add_station(&self.conn, name, url, description) {
-            Ok(id) => id,
-            Err(_) => {
-                // If we can't add it (likely because it already exists),
-                // try to find it by URL
-                let id = self.find_station_id_by_url(url);
-                id.unwrap_or(0)
-            }
-        };
-
-        // Set current station ID for stats tracking
-        if station_id > 0 {
-            self.current_station_id = Some(station_id);
-            // Reset the stats timer
-            self.stats_last_update = Instant::now();
+        // First check if this URL already exists in the database
+        if let Some(id) = self.find_station_id_by_url(url) {
+            // URL already exists, use the existing station ID
+            self.current_station_id = Some(id);
         } else {
-            self.current_station_id = None;
+            // URL doesn't exist, add the new station
+            match crate::db::add_station(&self.conn, name, url, description) {
+                Ok(id) => {
+                    self.current_station_id = Some(id);
+                    // Update the local stations list to include the new station
+                    self.stations = crate::db::load_stations(&self.conn)?;
+                }
+                Err(_) => {
+                    // If adding fails for any reason, set current station ID to None
+                    self.current_station_id = None;
+                }
+            }
+        }
+
+        // Reset the stats timer if we have a valid station ID
+        if self.current_station_id.is_some() {
+            self.stats_last_update = Instant::now();
         }
 
         Ok(())
@@ -1027,20 +1037,35 @@ impl App {
         // Convert query to lowercase for case-insensitive search
         let query = self.search_query.to_lowercase();
 
+        // Track URLs we've already added to prevent duplicates
+        let mut added_urls = std::collections::HashSet::new();
+
         // Search for stations matching the query in both regular and RCast stations
         // First check in regular stations
         for station in &self.stations {
+            // Only add each URL once
+            if added_urls.contains(&station.url) {
+                continue;
+            }
+
             if station.name.to_lowercase().contains(&query) {
                 self.search_results.push(station.clone());
+                added_urls.insert(station.url.clone());
             } else if let Some(desc) = &station.description {
                 if desc.to_lowercase().contains(&query) {
                     self.search_results.push(station.clone());
+                    added_urls.insert(station.url.clone());
                 }
             }
         }
 
         // Then check in RCast stations
         for rcast_station in &self.rcast_stations {
+            // Skip if we already have this URL from local stations
+            if added_urls.contains(&rcast_station.url) {
+                continue;
+            }
+
             if rcast_station.name.to_lowercase().contains(&query) {
                 // Convert RCast station to regular station
                 let station = Station {
@@ -1052,8 +1077,10 @@ impl App {
                 };
 
                 self.search_results.push(station);
+                added_urls.insert(rcast_station.url.clone());
             } else if let Some(desc) = &rcast_station.description {
-                if desc.to_lowercase().contains(&query) {
+                if desc.to_lowercase().contains(&query) && !added_urls.contains(&rcast_station.url)
+                {
                     // Convert RCast station to regular station
                     let station = Station {
                         id: 0,
@@ -1064,6 +1091,7 @@ impl App {
                     };
 
                     self.search_results.push(station);
+                    added_urls.insert(rcast_station.url.clone());
                 }
             }
         }

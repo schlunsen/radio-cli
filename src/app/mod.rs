@@ -74,10 +74,11 @@ pub struct App {
     pub search_query: String, // Current search query
     pub search_results: Vec<Station>, // Filtered search results
     pub search_list_state: ListState, // State for search results list pane
+    pub show_visualizations: bool, // Whether to show visualizations (false = show stats instead)
 }
 
 impl App {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new(show_visualizations: bool) -> Result<Self, Box<dyn Error>> {
         // Get the database path
         let db_path = get_database_path()?;
 
@@ -143,6 +144,7 @@ impl App {
             search_query: String::new(),
             search_results: Vec::new(),
             search_list_state: ListState::default(),
+            show_visualizations,
         })
     }
 
@@ -220,6 +222,7 @@ impl App {
                     &self.search_query,
                     &self.search_results,
                     &mut self.search_list_state,
+                    self.show_visualizations,
                 )
             })?;
 
@@ -428,6 +431,10 @@ impl App {
                         self.stations = crate::db::load_stations(&self.conn)?;
                     }
                 }
+            }
+            KeyCode::Char('V') => {
+                // Toggle visualization mode
+                self.show_visualizations = !self.show_visualizations;
             }
             _ => {}
         }
@@ -848,6 +855,10 @@ impl App {
             KeyCode::Char('t') => {
                 // Toggle showing top stations in Stream info
                 self.show_top_stations = !self.show_top_stations;
+            }
+            KeyCode::Char('V') => {
+                // Toggle visualization mode
+                self.show_visualizations = !self.show_visualizations;
             }
             KeyCode::Char('a') => {
                 // Add current station to saved stations

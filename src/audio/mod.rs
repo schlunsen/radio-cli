@@ -422,7 +422,6 @@ impl Player {
 
             // We'll try to use echo or printf with a pipe to mpv
             // This is safer and works across different platforms
-            let player_pid = child.id();
 
             #[cfg(target_os = "macos")]
             let mute_result = {
@@ -435,7 +434,8 @@ impl Player {
             let mute_result = {
                 // On Linux, we can try to send a command to MPV's input pipe if it exists
                 // Try to find the mpv socket if it exists
-                if let Some(pid) = player_pid {
+                let player_pid = child.id();
+                if let Some(pid) = Some(player_pid) {
                     // MPV creates socket in /tmp/
                     if let Ok(sockets) = std::fs::read_dir("/tmp") {
                         for entry in sockets.filter_map(Result::ok) {
@@ -503,7 +503,6 @@ impl Player {
 
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(child) = &mut self.current_player {
-            let id = child.id();
             // Try to send a volume-up command to MPV
             // This is a visual-only change for most platforms
             eprintln!("Volume up");
@@ -511,6 +510,7 @@ impl Player {
             #[cfg(target_os = "linux")]
             {
                 // On Linux, try to send volume command to MPV's socket if it exists
+                let id = child.id();
                 if let Ok(sockets) = std::fs::read_dir("/tmp") {
                     for entry in sockets.filter_map(Result::ok) {
                         if let Ok(fname) = entry.file_name().into_string() {
@@ -550,7 +550,6 @@ impl Player {
 
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(child) = &mut self.current_player {
-            let id = child.id();
             // Try to send a volume-down command to MPV
             // This is a visual-only change for most platforms
             eprintln!("Volume down");
@@ -558,6 +557,7 @@ impl Player {
             #[cfg(target_os = "linux")]
             {
                 // On Linux, try to send volume command to MPV's socket if it exists
+                let id = child.id();
                 if let Ok(sockets) = std::fs::read_dir("/tmp") {
                     for entry in sockets.filter_map(Result::ok) {
                         if let Ok(fname) = entry.file_name().into_string() {

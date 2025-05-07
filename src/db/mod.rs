@@ -1,12 +1,21 @@
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
+use std::time::SystemTime;
 
+#[derive(Clone)]
 pub struct Station {
     pub id: i32,
     pub name: String,
     pub url: String,
     pub favorite: bool,
     pub description: Option<String>,
+}
+
+pub struct StationStats {
+    #[allow(dead_code)]
+    pub station_id: i32,
+    pub total_play_time: i64,     // Total play time in seconds
+    pub last_played: Option<i64>, // Unix timestamp of last play
 }
 
 pub fn init_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
@@ -20,6 +29,18 @@ pub fn init_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
         )",
         [],
     )?;
+
+    // Create stats table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS station_stats (
+            station_id INTEGER PRIMARY KEY,
+            total_play_time INTEGER NOT NULL DEFAULT 0,
+            last_played INTEGER,
+            FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     let count: i32 = conn.query_row("SELECT COUNT(*) FROM stations", [], |row| row.get(0))?;
     if count == 0 {
         let stations = vec![
@@ -119,4 +140,106 @@ pub fn update_station(
         params![name, url, description, station_id],
     )?;
     Ok(())
+}
+
+// Station usage statistics functions
+
+pub fn update_station_stats(
+    conn: &Connection,
+    station_id: i32,
+    play_time: i64,
+) -> Result<(), Box<dyn Error>> {
+    // Get current unix timestamp
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|e| format!("Time error: {}", e))?
+        .as_secs() as i64;
+
+    // Try to update existing record first
+    let updated = conn.execute(
+        "UPDATE station_stats 
+         SET total_play_time = total_play_time + ?1, last_played = ?2 
+         WHERE station_id = ?3",
+        params![play_time, now, station_id],
+    )?;
+
+    // If no record was updated, insert a new one
+    if updated == 0 {
+        conn.execute(
+            "INSERT INTO station_stats (station_id, total_play_time, last_played) 
+             VALUES (?1, ?2, ?3)",
+            params![station_id, play_time, now],
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn get_station_stats(
+    conn: &Connection,
+    station_id: i32,
+) -> Result<Option<StationStats>, Box<dyn Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT station_id, total_play_time, last_played 
+         FROM station_stats 
+         WHERE station_id = ?1",
+    )?;
+
+    let mut stats = stmt.query_map(params![station_id], |row| {
+        Ok(StationStats {
+            station_id: row.get(0)?,
+            total_play_time: row.get(1)?,
+            last_played: row.get(2)?,
+        })
+    })?;
+
+    // Return the first (and only) result, or None if no stats exist
+    if let Some(stat) = stats.next() {
+        return Ok(Some(stat?));
+    }
+
+    Ok(None)
+}
+
+pub fn get_top_stations(
+    conn: &Connection,
+    limit: usize,
+) -> Result<Vec<(Station, i64)>, Box<dyn Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.name, s.url, s.favorite, s.description, st.total_play_time
+         FROM stations s
+         JOIN station_stats st ON s.id = st.station_id
+         ORDER BY st.total_play_time DESC
+         LIMIT ?1",
+    )?;
+
+    let results = stmt.query_map(params![limit as i64], |row| {
+        Ok((
+            Station {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                url: row.get(2)?,
+                favorite: row.get::<_, i32>(3)? != 0,
+                description: row.get(4)?,
+            },
+            row.get::<_, i64>(5)?,
+        ))
+    })?;
+
+    let mut stations = Vec::new();
+    for result in results {
+        stations.push(result?);
+    }
+
+    Ok(stations)
+}
+
+pub fn format_play_time(seconds: i64) -> String {
+    if seconds < 60 {
+        format!("{}s", seconds)
+    } else if seconds < 3600 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
+    }
 }

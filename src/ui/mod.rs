@@ -39,6 +39,7 @@ pub fn ui(
     search_query: &str,
     search_results: &[Station],
     search_list_state: &mut ListState,
+    show_visualizations: bool,
 ) {
     let size = f.size();
 
@@ -57,12 +58,12 @@ pub fn ui(
 
     // Render help area
     let help_text = match mode {
-        AppMode::Normal => "↑/↓: Navigate  ⏎: Play  s: Stop  m: Mute/Unmute  +/-: Volume  f: Favorite  a: Add  e: Edit  d: Delete  t: Toggle Top Stations  v: Visualizations  /: Search  Tab: RCast  q: Quit",
+        AppMode::Normal => "↑/↓: Navigate  ⏎: Play  s: Stop  m: Mute/Unmute  +/-: Volume  f: Favorite  a: Add  e: Edit  d: Delete  t: Toggle Top Stations  v: Vis Menu  V: Toggle Visualizations  /: Search  Tab: RCast  q: Quit",
         AppMode::AddingStation => "Tab: Next Field  Enter: Confirm  Esc: Cancel",
         AppMode::EditingStation => "Tab: Next Field  Enter: Save  Esc: Cancel",
         AppMode::DeletingStation => "y: Confirm Delete  n/Esc: Cancel",
         AppMode::VisualizationMenu => "↑/↓: Navigate  Enter: Select  Esc: Cancel",
-        AppMode::RcastStations => "↑/↓: Navigate  ⏎: Play  m: Mute/Unmute  +/-: Volume  r: Refresh  t: Toggle Top Stations  /: Search  Tab: Main View  q: Quit",
+        AppMode::RcastStations => "↑/↓: Navigate  ⏎: Play  m: Mute/Unmute  +/-: Volume  r: Refresh  t: Toggle Top Stations  V: Toggle Visualizations  /: Search  Tab: Main View  q: Quit",
         AppMode::Searching => "↑/↓: Navigate  ⏎: Play Selected  Esc: Cancel  Type to search...",
     };
 
@@ -78,12 +79,36 @@ pub fn ui(
         .iter()
         .map(|s| {
             let mut content = s.name.clone();
+
+            // Add favorite star if needed
             if s.favorite {
                 content = format!("★ {}", content);
             }
+
+            // If visualizations are disabled, add stats to the list item
+            if !show_visualizations {
+                if let Ok(Some(stats)) = get_station_stats(conn, s.id) {
+                    let play_time = format_play_time(stats.total_play_time);
+
+                    // Add formatted play time
+                    content = format!("{} [{}]", content, play_time);
+
+                    // Add last played date if available
+                    if let Some(last_played) = stats.last_played {
+                        if last_played > 0 {
+                            let datetime = chrono::DateTime::from_timestamp(last_played, 0)
+                                .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+                            let local_time = datetime.format("%m-%d %H:%M");
+                            content = format!("{} ({})", content, local_time);
+                        }
+                    }
+                }
+            }
+
             ListItem::new(Span::styled(content, Style::default().fg(Color::Cyan)))
         })
         .collect();
+
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Stations"))
         .highlight_style(
@@ -114,34 +139,81 @@ pub fn ui(
                 ("Locked", crate::audio::AudioState::new()) // Fallback if we can't acquire the lock
             };
 
-            // Make the mute status more prominent by adding a symbol
-            let status_with_symbol = if state.is_muted {
-                format!("Visualization - {} 🔇", status_text)
-            } else {
-                format!("Visualization - {} 🔊", status_text)
-            };
-
-            let vis_block = Block::default()
-                .borders(Borders::ALL)
-                .title(status_with_symbol);
-
-            // Split visualization area into visualization and metadata
+            // Split visualization/details area into two parts - top and bottom
             let vis_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
                 .split(main_chunks[1]);
 
-            // Create a canvas with the active visualization
-            let canvas = Canvas::default()
-                .block(vis_block)
-                .x_bounds([0.0, 100.0])
-                .y_bounds([0.0, 100.0])
-                .paint(|ctx| {
-                    // Use the current visualization from the manager
-                    vis_manager.render(ctx, &state);
-                });
+            // Determine what to show in the top area based on visualization setting
+            if show_visualizations {
+                // Make the mute status more prominent by adding a symbol
+                let status_with_symbol = if state.is_muted {
+                    format!("Visualization - {} 🔇", status_text)
+                } else {
+                    format!("Visualization - {} 🔊", status_text)
+                };
 
-            f.render_widget(canvas, vis_chunks[0]);
+                let vis_block = Block::default()
+                    .borders(Borders::ALL)
+                    .title(status_with_symbol);
+
+                // Create a canvas with the active visualization
+                let canvas = Canvas::default()
+                    .block(vis_block)
+                    .x_bounds([0.0, 100.0])
+                    .y_bounds([0.0, 100.0])
+                    .paint(|ctx| {
+                        // Use the current visualization from the manager
+                        vis_manager.render(ctx, &state);
+                    });
+
+                f.render_widget(canvas, vis_chunks[0]);
+            } else {
+                // Instead of visualization, show detailed station info
+                let title = format!("Station Details - {}", status_text);
+                let details_block = Block::default().borders(Borders::ALL).title(title);
+
+                // Get current selected station
+                let details_text = if let Some(selected) = list_state.selected() {
+                    if selected < stations.len() {
+                        let station = &stations[selected];
+                        let mut text = format!("Name: {}\nURL: {}", station.name, station.url);
+
+                        // Add description if available
+                        if let Some(desc) = &station.description {
+                            text.push_str(&format!("\n\nDescription: {}", desc));
+                        }
+
+                        // Add detailed station stats
+                        if let Ok(Some(stats)) = get_station_stats(conn, station.id) {
+                            text.push_str(&format!(
+                                "\n\nTotal Play Time: {}",
+                                format_play_time(stats.total_play_time)
+                            ));
+
+                            if let Some(last_played) = stats.last_played {
+                                let datetime = chrono::DateTime::from_timestamp(last_played, 0)
+                                    .unwrap_or_else(|| {
+                                        chrono::DateTime::from_timestamp(0, 0).unwrap()
+                                    });
+                                let local_time = datetime.format("%Y-%m-%d %H:%M:%S");
+                                text.push_str(&format!("\nLast Played: {}", local_time));
+                            }
+                        }
+
+                        text
+                    } else {
+                        "No station selected".to_string()
+                    }
+                } else {
+                    "No station selected".to_string()
+                };
+
+                let details_widget = Paragraph::new(details_text).block(details_block);
+
+                f.render_widget(details_widget, vis_chunks[0]);
+            }
 
             // Display stream metadata or top stations
             let metadata_text = if show_top_stations {

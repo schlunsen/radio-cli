@@ -12,7 +12,8 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-VERSION=$1
+# Remove potential 'v' prefix if present
+VERSION=${1#v}
 FORMULA_PATH="Formula/radio-cli.rb"
 GITHUB_REPO="schlunsen/radio-cli"
 RELEASE_URL="https://github.com/$GITHUB_REPO/releases/tag/$VERSION"
@@ -27,15 +28,15 @@ calculate_sha() {
 }
 
 # Get the source tarball URL and SHA
-SOURCE_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$VERSION.tar.gz"
+SOURCE_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/v$VERSION.tar.gz"
 SOURCE_SHA=$(calculate_sha "$SOURCE_URL")
 
 # Get the macOS Intel binary URL and SHA
-MACOS_INTEL_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION/radio_cli-macos-intel.tar.gz"
+MACOS_INTEL_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/radio_cli-macos-intel.tar.gz"
 MACOS_INTEL_SHA=$(calculate_sha "$MACOS_INTEL_URL")
 
 # Get the macOS Apple Silicon binary URL and SHA
-MACOS_ARM_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION/radio_cli-macos-apple-silicon.tar.gz"
+MACOS_ARM_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/radio_cli-macos-apple-silicon.tar.gz"
 MACOS_ARM_SHA=$(calculate_sha "$MACOS_ARM_URL")
 
 echo "Source tarball SHA: $SOURCE_SHA"
@@ -49,23 +50,49 @@ if [ ! -f "$FORMULA_PATH" ]; then
 fi
 
 # Update the formula file with new version and SHAs
-sed -i "" \
-  -e "s|url \"https://github.com/$GITHUB_REPO/archive/refs/tags/v[0-9.]*\.tar\.gz\"|url \"$SOURCE_URL\"|" \
-  -e "s|sha256 \"[a-f0-9]*\"|sha256 \"$SOURCE_SHA\"|" \
-  -e "s|url \"https://github.com/$GITHUB_REPO/releases/download/v[0-9.]*/radio_cli-macos-intel.tar.gz\"|url \"$MACOS_INTEL_URL\"|" \
-  -e "s|url \"https://github.com/$GITHUB_REPO/releases/download/v[0-9.]*/radio_cli-macos-apple-silicon.tar.gz\"|url \"$MACOS_ARM_URL\"|" \
-  "$FORMULA_PATH"
+echo "Updating formula file with new version and SHAs..."
 
-# Update all the SHA256 hashes - Intel and Apple Silicon
-# Get line numbers for Intel and Apple Silicon SHAs
-INTEL_SHA_LINE=$(grep -n "Hardware::CPU.intel" "$FORMULA_PATH" | head -1 | cut -d ':' -f 1)
-INTEL_SHA_LINE=$((INTEL_SHA_LINE + 1))
-ARM_SHA_LINE=$(grep -n "Hardware::CPU.arm" "$FORMULA_PATH" | head -1 | cut -d ':' -f 1)
-ARM_SHA_LINE=$((ARM_SHA_LINE + 1))
+# Update the main formula URL
+sed -i "" -e "s|url \"https://github.com/$GITHUB_REPO/archive/refs/tags/v[0-9.]*\.tar\.gz\"|url \"$SOURCE_URL\"|" "$FORMULA_PATH"
 
-# Update the SHA lines
-sed -i "" "${INTEL_SHA_LINE}s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_INTEL_SHA\"|" "$FORMULA_PATH"
-sed -i "" "${ARM_SHA_LINE}s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_ARM_SHA\"|" "$FORMULA_PATH"
+# Update the Intel URL 
+sed -i "" -e "s|url \"https://github.com/$GITHUB_REPO/releases/download/v[0-9.]*/radio_cli-macos-intel.tar.gz\"|url \"$MACOS_INTEL_URL\"|" "$FORMULA_PATH"
+
+# Update the Apple Silicon URL
+sed -i "" -e "s|url \"https://github.com/$GITHUB_REPO/releases/download/v[0-9.]*/radio_cli-macos-apple-silicon.tar.gz\"|url \"$MACOS_ARM_URL\"|" "$FORMULA_PATH"
+
+# Update all the SHA256 hashes
+echo "Updating SHA256 hashes..."
+
+# Update main SHA first (this is the source code tarball)
+awk -v sha="$SOURCE_SHA" '
+  /^  desc / { print; getline; 
+    if ($1 == "homepage") { print; getline; 
+      if ($1 == "url") { print; getline; 
+        if ($1 == "sha256") { print "  sha256 \"" sha "\""; next; }
+      }
+    }
+  }
+  { print }
+' "$FORMULA_PATH" > "$FORMULA_PATH.tmp" && mv "$FORMULA_PATH.tmp" "$FORMULA_PATH"
+
+# Update the Intel SHA
+INTEL_SECTION=$(grep -n -A 3 "if Hardware::CPU.intel" "$FORMULA_PATH" | head -3)
+INTEL_SHA_LINE=$(echo "$INTEL_SECTION" | grep -n "sha256" | cut -d ':' -f 1)
+if [ -n "$INTEL_SHA_LINE" ]; then
+  INTEL_SHA_LINE=$(echo "$INTEL_SECTION" | grep -n "sha256" | cut -d ':' -f 3 | cut -d '-' -f 1)
+  sed -i "" "${INTEL_SHA_LINE}s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_INTEL_SHA\"|" "$FORMULA_PATH"
+  echo "Updated Intel SHA256"
+fi
+
+# Update the ARM SHA
+ARM_SECTION=$(grep -n -A 3 "if Hardware::CPU.arm" "$FORMULA_PATH" | head -3)
+ARM_SHA_LINE=$(echo "$ARM_SECTION" | grep -n "sha256" | cut -d ':' -f 1)
+if [ -n "$ARM_SHA_LINE" ]; then
+  ARM_SHA_LINE=$(echo "$ARM_SECTION" | grep -n "sha256" | cut -d ':' -f 3 | cut -d '-' -f 1)
+  sed -i "" "${ARM_SHA_LINE}s|sha256 \"[a-f0-9]*\"|sha256 \"$MACOS_ARM_SHA\"|" "$FORMULA_PATH"
+  echo "Updated ARM SHA256"
+fi
 
 echo "Formula updated successfully with version $VERSION"
 echo "URLs and SHA256 hashes have been updated."

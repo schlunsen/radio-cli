@@ -1,6 +1,6 @@
 [package]
 name = "radio_cli"
-version = "1.3.6"
+version = "1.3.7"
 edition = "2021"
 authors = ["schlunsen"]
 description = "Terminal-based internet radio player with visualizations"

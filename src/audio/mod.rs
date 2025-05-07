@@ -401,6 +401,7 @@ impl Player {
         self.is_muted = false;
     }
 
+    #[allow(unused_variables)]
     pub fn toggle_mute(&mut self, visualizer: &AudioVisualizer) -> Result<(), String> {
         // Toggle the mute state
         self.is_muted = !self.is_muted;
@@ -421,7 +422,7 @@ impl Player {
 
             // We'll try to use echo or printf with a pipe to mpv
             // This is safer and works across different platforms
-            let _player_pid = child.id();
+            let player_pid = child.id();
 
             #[cfg(target_os = "macos")]
             let mute_result = {
@@ -491,6 +492,7 @@ impl Player {
     }
 
     // Increase volume
+    #[allow(unused_variables)]
     pub fn volume_up(&mut self, visualizer: &AudioVisualizer) -> Result<(), String> {
         #[cfg(feature = "skip_mpv")]
         {
@@ -501,7 +503,7 @@ impl Player {
 
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(child) = &mut self.current_player {
-            let _id = child.id();
+            let id = child.id();
             // Try to send a volume-up command to MPV
             // This is a visual-only change for most platforms
             eprintln!("Volume up");
@@ -537,6 +539,7 @@ impl Player {
     }
 
     // Decrease volume
+    #[allow(unused_variables)]
     pub fn volume_down(&mut self, visualizer: &AudioVisualizer) -> Result<(), String> {
         #[cfg(feature = "skip_mpv")]
         {
@@ -547,7 +550,7 @@ impl Player {
 
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(child) = &mut self.current_player {
-            let _id = child.id();
+            let id = child.id();
             // Try to send a volume-down command to MPV
             // This is a visual-only change for most platforms
             eprintln!("Volume down");

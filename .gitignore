@@ -7,3 +7,5 @@ docs/dist/
 docs/.astro/
 
 **/.claude/settings.local.json
+mac_app/radio-mac/radio-mac.xcodeproj/xcuserdata/
+mac_app/radio-mac/radio-mac.xcodeproj/project.xcworkspace/xcuserdata/

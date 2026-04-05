@@ -26,6 +26,7 @@ pub enum AppMode {
     VisualizationMenu,
     DeletingStation,
     RcastStations,
+    RadioBrowser,
     Searching,
 }
 
@@ -52,6 +53,12 @@ pub struct App {
     pub rcast_stations: Vec<crate::rcast::RcastStation>, // List of stations from RCast.net
     pub rcast_list_state: ListState, // State for RCast stations list
     pub rcast_loading: bool,  // Whether we're currently loading RCast stations
+    pub rb_stations: Vec<crate::radiobrowser::RadioBrowserStation>,
+    pub rb_list_state: ListState,
+    pub rb_loading: bool,
+    pub rb_filter: crate::radiobrowser::RadioBrowserFilter,
+    pub rb_filter_input: String,
+    pub rb_entering_filter: bool,
     pub stats_last_update: Instant, // Last time stats were updated
     pub metadata_last_update: Instant, // Last time metadata was updated
     pub current_station_id: Option<i32>, // Currently playing station ID
@@ -127,6 +134,12 @@ impl App {
             rcast_stations: Vec::new(),
             rcast_list_state: ListState::default(),
             rcast_loading: false,
+            rb_stations: Vec::new(),
+            rb_list_state: ListState::default(),
+            rb_loading: false,
+            rb_filter: crate::radiobrowser::RadioBrowserFilter::default(),
+            rb_filter_input: String::new(),
+            rb_entering_filter: false,
             stats_last_update: Instant::now(),
             metadata_last_update: Instant::now(),
             current_station_id: None,
@@ -196,6 +209,11 @@ impl App {
                         &self.rcast_stations,
                         &mut self.rcast_list_state,
                         self.rcast_loading,
+                        &self.rb_stations,
+                        &mut self.rb_list_state,
+                        self.rb_loading,
+                        self.rb_entering_filter,
+                        &self.rb_filter_input,
                         self.show_top_stations,
                         &self.conn,
                         self.current_station_id,
@@ -240,6 +258,11 @@ impl App {
                         AppMode::RcastStations => {
                             if self.handle_rcast_stations_mode(key)? {
                                 break; // User requested exit
+                            }
+                        }
+                        AppMode::RadioBrowser => {
+                            if self.handle_radiobrowser_stations_mode(key)? {
+                                break;
                             }
                         }
                         AppMode::Searching => {
@@ -333,6 +356,15 @@ impl App {
                 // Ensure a station is selected in the list
                 if !self.rcast_stations.is_empty() && self.rcast_list_state.selected().is_none() {
                     self.rcast_list_state.select(Some(0));
+                }
+            }
+            KeyCode::Char('b') => {
+                self.mode = AppMode::RadioBrowser;
+                if self.rb_stations.is_empty() {
+                    self.refresh_radiobrowser_stations()?;
+                }
+                if !self.rb_stations.is_empty() && self.rb_list_state.selected().is_none() {
+                    self.rb_list_state.select(Some(0));
                 }
             }
             KeyCode::Char('a') => {
@@ -1080,6 +1112,35 @@ impl App {
             }
         }
 
+        // Search in Radio Browser stations
+        for rb_station in &self.rb_stations {
+            if added_urls.contains(&rb_station.url) {
+                continue;
+            }
+            let query_lower = self.search_query.to_lowercase();
+            let name_match = rb_station.name.to_lowercase().contains(&query_lower);
+            let tags_match = rb_station.tags.as_deref()
+                .map(|t| t.to_lowercase().contains(&query_lower))
+                .unwrap_or(false);
+            let country_match = rb_station.country.as_deref()
+                .map(|c| c.to_lowercase().contains(&query_lower))
+                .unwrap_or(false);
+
+            if name_match || tags_match || country_match {
+                let station = crate::db::Station {
+                    id: 0,
+                    name: rb_station.name.clone(),
+                    url: rb_station.url.clone(),
+                    favorite: false,
+                    description: rb_station.tags.clone(),
+                };
+                if !rb_station.url.is_empty() {
+                    self.search_results.push(station);
+                    added_urls.insert(rb_station.url.clone());
+                }
+            }
+        }
+
         // If we have search results, select the first one
         if !self.search_results.is_empty() {
             self.search_list_state.select(Some(0));
@@ -1150,6 +1211,204 @@ impl App {
 
         // Reset loading flag
         self.rcast_loading = false;
+        Ok(())
+    }
+
+    fn handle_radiobrowser_stations_mode(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        use crossterm::event::KeyCode;
+
+        // Sub-mode: typing a genre/tag filter
+        if self.rb_entering_filter {
+            match key.code {
+                KeyCode::Esc => {
+                    self.rb_entering_filter = false;
+                    self.rb_filter_input.clear();
+                }
+                KeyCode::Enter => {
+                    let tag = self.rb_filter_input.trim().to_string();
+                    self.rb_filter.tag = if tag.is_empty() { None } else { Some(tag) };
+                    self.rb_entering_filter = false;
+                    self.rb_filter_input.clear();
+                    self.refresh_radiobrowser_stations()?;
+                }
+                KeyCode::Backspace => {
+                    self.rb_filter_input.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.rb_filter_input.push(c);
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
+
+        match key.code {
+            KeyCode::Esc | KeyCode::Tab => {
+                self.mode = AppMode::Normal;
+                if !self.stations.is_empty() && self.list_state.selected().is_none() {
+                    self.list_state.select(Some(0));
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let len = self.rb_stations.len();
+                if len > 0 {
+                    let i = match self.rb_list_state.selected() {
+                        Some(i) => (i + 1) % len,
+                        None => 0,
+                    };
+                    self.rb_list_state.select(Some(i));
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = self.rb_stations.len();
+                if len > 0 {
+                    let i = match self.rb_list_state.selected() {
+                        Some(i) => {
+                            if i == 0 { len - 1 } else { i - 1 }
+                        }
+                        None => 0,
+                    };
+                    self.rb_list_state.select(Some(i));
+                }
+            }
+            KeyCode::PageDown => {
+                let len = self.rb_stations.len();
+                if len > 0 {
+                    let i = match self.rb_list_state.selected() {
+                        Some(i) => std::cmp::min(i + 10, len - 1),
+                        None => 0,
+                    };
+                    self.rb_list_state.select(Some(i));
+                }
+            }
+            KeyCode::PageUp => {
+                if !self.rb_stations.is_empty() {
+                    let i = match self.rb_list_state.selected() {
+                        Some(i) => i.saturating_sub(10),
+                        None => 0,
+                    };
+                    self.rb_list_state.select(Some(i));
+                }
+            }
+            KeyCode::Home => {
+                if !self.rb_stations.is_empty() {
+                    self.rb_list_state.select(Some(0));
+                }
+            }
+            KeyCode::End => {
+                if !self.rb_stations.is_empty() {
+                    self.rb_list_state.select(Some(self.rb_stations.len() - 1));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(i) = self.rb_list_state.selected() {
+                    if i < self.rb_stations.len() {
+                        let name = self.rb_stations[i].name.clone();
+                        let url = self.rb_stations[i].url.clone();
+                        let desc = crate::radiobrowser::build_rb_description(&self.rb_stations[i]);
+                        if !url.is_empty() {
+                            self.play_station(&name, &url, Some(&desc))?;
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('a') => {
+                if let Some(i) = self.rb_list_state.selected() {
+                    if i < self.rb_stations.len() {
+                        let url = self.rb_stations[i].url.clone();
+                        let name = self.rb_stations[i].name.clone();
+                        let desc = crate::radiobrowser::build_rb_description(&self.rb_stations[i]);
+                        if !url.is_empty() {
+                            if let Ok(None) = crate::db::find_station_by_url(&self.conn, &url) {
+                                let desc_opt = if desc.is_empty() { None } else { Some(desc.as_str()) };
+                                crate::db::add_station(&self.conn, &name, &url, desc_opt)?;
+                            }
+                            self.stations = crate::db::load_stations(&self.conn)?;
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('r') => {
+                self.rb_filter = crate::radiobrowser::RadioBrowserFilter::default();
+                self.refresh_radiobrowser_stations()?;
+            }
+            KeyCode::Char('g') => {
+                self.rb_entering_filter = true;
+                self.rb_filter_input.clear();
+            }
+            KeyCode::Char('q') => {
+                return Ok(true);
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn refresh_radiobrowser_stations(&mut self) -> Result<(), Box<dyn Error>> {
+        self.rb_loading = true;
+        self.rb_stations.clear();
+
+        let filter = self.rb_filter.clone();
+
+        let result = if let Some(ref rt) = self.tokio_runtime {
+            rt.block_on(crate::radiobrowser::fetch_stations(&filter))
+        } else {
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt.block_on(crate::radiobrowser::fetch_stations(&filter)),
+                Err(_e) => {
+                    self.rb_stations.push(crate::radiobrowser::RadioBrowserStation {
+                        name: "Error initializing async runtime".to_string(),
+                        url: String::new(),
+                        codec: None,
+                        bitrate: None,
+                        tags: None,
+                        country: None,
+                        clickcount: None,
+                        votes: None,
+                    });
+                    self.rb_loading = false;
+                    return Ok(());
+                }
+            }
+        };
+
+        match result {
+            Ok(stations) => {
+                self.rb_stations = stations;
+                if self.rb_stations.is_empty() {
+                    self.rb_stations.push(crate::radiobrowser::RadioBrowserStation {
+                        name: "No stations found. Try a different filter ('g') or refresh ('r').".to_string(),
+                        url: String::new(),
+                        codec: None,
+                        bitrate: None,
+                        tags: None,
+                        country: None,
+                        clickcount: None,
+                        votes: None,
+                    });
+                }
+            }
+            Err(e) => {
+                self.rb_stations.push(crate::radiobrowser::RadioBrowserStation {
+                    name: format!("Error: {}. Press 'r' to retry.", e),
+                    url: String::new(),
+                    codec: None,
+                    bitrate: None,
+                    tags: None,
+                    country: None,
+                    clickcount: None,
+                    votes: None,
+                });
+            }
+        }
+
+        if !self.rb_stations.is_empty() {
+            self.rb_list_state.select(Some(0));
+        }
+        self.rb_loading = false;
         Ok(())
     }
 }

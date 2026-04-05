@@ -5,6 +5,7 @@ use crate::visualizations::VisualizationManager;
 use rusqlite::{params, Connection};
 mod popup;
 mod rcast_stations;
+mod radiobrowser_stations;
 mod vis_menu;
 
 use ratatui::{
@@ -15,6 +16,7 @@ use ratatui::{
     Frame,
 };
 pub use rcast_stations::render_rcast_stations;
+pub use radiobrowser_stations::{render_radiobrowser_stations, render_radiobrowser_detail};
 
 #[allow(clippy::too_many_arguments)]
 pub fn ui(
@@ -33,6 +35,11 @@ pub fn ui(
     rcast_stations: &[crate::rcast::RcastStation],
     rcast_list_state: &mut ListState,
     rcast_loading: bool,
+    rb_stations: &[crate::radiobrowser::RadioBrowserStation],
+    rb_list_state: &mut ListState,
+    rb_loading: bool,
+    rb_filter_active: bool,
+    rb_filter_input: &str,
     show_top_stations: bool,
     conn: &Connection,
     current_station_id: Option<i32>,
@@ -61,12 +68,13 @@ pub fn ui(
 
     // Render help area
     let help_text = match mode {
-        AppMode::Normal => "j/↑ k/↓: Navigate  PgUp/PgDn: Page  Home/End: Jump  ⏎: Play  s: Stop  m: Mute  +/-: Volume  f: Fav  a: Add  e: Edit  d: Del  t: Top  v: Vis Menu  V: Toggle Vis  /: Search  Tab: RCast  q: Quit",
+        AppMode::Normal => "j/↑ k/↓: Navigate  PgUp/PgDn: Page  Home/End: Jump  ⏎: Play  s: Stop  m: Mute  +/-: Volume  f: Fav  a: Add  e: Edit  d: Del  t: Top  v: Vis Menu  V: Toggle Vis  /: Search  Tab: RCast  b: Radio Browser  q: Quit",
         AppMode::AddingStation => "Tab: Next Field  Enter: Confirm  Esc: Cancel",
         AppMode::EditingStation => "Tab: Next Field  Enter: Save  Esc: Cancel",
         AppMode::DeletingStation => "y: Confirm Delete  n/Esc: Cancel",
         AppMode::VisualizationMenu => "j/↑ k/↓: Navigate  Enter: Select  Esc: Cancel",
         AppMode::RcastStations => "j/↑ k/↓: Navigate  PgUp/PgDn: Page  ⏎: Play  m: Mute  +/-: Vol  r: Refresh  t: Top  V: Toggle Vis  /: Search  Tab: Main  q: Quit",
+        AppMode::RadioBrowser => "j/k: Navigate  Enter: Play  a: Save  g: Genre filter  r: Reset  Esc: Back  q: Quit",
         AppMode::Searching => "↑/↓: Navigate  ⏎: Play Selected  Esc: Cancel  Type to search...",
     };
 
@@ -436,6 +444,28 @@ pub fn ui(
                     f.render_widget(metadata, rcast_chunks[1]);
                 }
             }
+        }
+        AppMode::RadioBrowser => {
+            let rb_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+                .split(main_chunks[1]);
+            render_radiobrowser_stations(
+                f,
+                rb_stations,
+                rb_list_state,
+                rb_chunks[0],
+                rb_loading,
+                rb_filter_active,
+                rb_filter_input,
+            );
+            render_radiobrowser_detail(
+                f,
+                rb_stations,
+                rb_list_state,
+                rb_chunks[1],
+                rb_loading,
+            );
         }
         AppMode::AddingStation => {
             popup::render_add_station_popup(

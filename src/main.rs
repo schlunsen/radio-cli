@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod db;
 mod rcast;
+mod radiobrowser;
 mod ui;
 mod visualizations;
 

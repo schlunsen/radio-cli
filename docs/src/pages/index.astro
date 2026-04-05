@@ -9,10 +9,11 @@ import Layout from '../layouts/Layout.astro';
       <div class="container">
         <div class="hero-badge">v1.3.7</div>
         <h1>RadioCLI <span class="emoji">&#x1F4FB;</span></h1>
-        <p class="tagline">A feature-rich terminal-based internet radio player built with Rust</p>
+        <p class="tagline">A feature-rich internet radio player &mdash; terminal UI built with Rust, plus a native macOS menu bar app</p>
 
         <div class="hero-actions">
-          <a href="#install" class="btn btn-primary">Install</a>
+          <a href="#install" class="btn btn-primary">Install CLI</a>
+          <a href="#mac-app" class="btn btn-primary btn-mac">&#xF8FF; Mac App</a>
           <a href="https://github.com/schlunsen/radio-cli" class="btn btn-secondary">GitHub</a>
         </div>
       </div>
@@ -68,6 +69,74 @@ import Layout from '../layouts/Layout.astro';
             <h3>Keyboard Driven</h3>
             <p>Simple, intuitive keyboard navigation. No mouse needed.</p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mac App -->
+    <section class="mac-app" id="mac-app">
+      <div class="container">
+        <div class="mac-app-header">
+          <img src={`${import.meta.env.BASE_URL}radiomac-icon.png`} alt="RadioMac icon" class="mac-app-icon" />
+          <div>
+            <h2>RadioMac <span class="new-badge">NEW</span></h2>
+            <p class="mac-app-tagline">Native macOS menu bar companion app</p>
+          </div>
+        </div>
+
+        <div class="mac-app-content">
+          <div class="mac-app-features">
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x1F39B;&#xFE0F;</span>
+              <div>
+                <strong>Menu Bar Player</strong>
+                <p>Lives in your menu bar &mdash; no Dock clutter. Click to play, control volume, see what&rsquo;s playing.</p>
+              </div>
+            </div>
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x1F504;</span>
+              <div>
+                <strong>Shared Database</strong>
+                <p>Reads the same <code>~/.config/radio_cli/stations.db</code> as the CLI. Your stations sync automatically.</p>
+              </div>
+            </div>
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x1F30D;</span>
+              <div>
+                <strong>Station Discovery</strong>
+                <p>Browse thousands of stations from Radio Browser. Filter by genre, search by name, preview before adding.</p>
+              </div>
+            </div>
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x1F3B5;</span>
+              <div>
+                <strong>Now Playing</strong>
+                <p>ICY stream metadata shows current song. Integrates with macOS Now Playing widget and media keys.</p>
+              </div>
+            </div>
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x1F4CA;</span>
+              <div>
+                <strong>Listening Stats</strong>
+                <p>Track play time per station with visual charts. See your top stations and total listening time.</p>
+              </div>
+            </div>
+            <div class="mac-feature">
+              <span class="mac-feature-icon">&#x2699;&#xFE0F;</span>
+              <div>
+                <strong>Launch at Login</strong>
+                <p>Optional auto-start. Set your default volume. Pure SwiftUI, no Electron.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mac-app-install">
+          <h3>Build from Source</h3>
+          <pre><code>git clone https://github.com/schlunsen/radio-cli.git
+cd radio-cli/mac_app/radio-mac
+xcodebuild -scheme radio-mac -configuration Release build</code></pre>
+          <p class="mac-app-req">Requires macOS 14+ (Sonoma) and Xcode 16+</p>
         </div>
       </div>
     </section>
@@ -306,6 +375,130 @@ cargo install --path .</code></pre>
     font-size: 0.85rem;
     color: var(--text-muted);
     line-height: 1.5;
+  }
+
+  /* Mac App button */
+  .btn-mac {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+  }
+
+  .btn-mac:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  /* Mac App Section */
+  .mac-app {
+    padding: 4rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, transparent, rgba(102, 126, 234, 0.03), transparent);
+  }
+
+  .mac-app-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .mac-app-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .mac-app-header h2 {
+    font-size: 2rem;
+    margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .new-badge {
+    font-size: 0.65rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    vertical-align: middle;
+  }
+
+  .mac-app-tagline {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+  }
+
+  .mac-app-features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .mac-feature {
+    display: flex;
+    gap: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    transition: border-color 0.2s;
+  }
+
+  .mac-feature:hover {
+    border-color: #667eea50;
+  }
+
+  .mac-feature-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+
+  .mac-feature strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 0.3rem;
+    color: #8b9cf7;
+  }
+
+  .mac-feature p {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .mac-feature code {
+    font-size: 0.78rem;
+    background: var(--surface-2);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+  }
+
+  .mac-app-install {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+
+  .mac-app-install h3 {
+    font-size: 1rem;
+    color: #8b9cf7;
+    margin-bottom: 0.75rem;
+  }
+
+  .mac-app-req {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
+    margin-bottom: 0;
   }
 
   /* Install */

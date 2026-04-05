@@ -1,0 +1,423 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="RadioCLI - Terminal Internet Radio Player">
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-badge">v1.3.7</div>
+        <h1>RadioCLI <span class="emoji">&#x1F4FB;</span></h1>
+        <p class="tagline">A feature-rich terminal-based internet radio player built with Rust</p>
+
+        <div class="hero-actions">
+          <a href="#install" class="btn btn-primary">Install</a>
+          <a href="https://github.com/schlunsen/radio-cli" class="btn btn-secondary">GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screenshot -->
+    <section class="screenshot">
+      <div class="container">
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">radio-cli</span>
+          </div>
+          <img src={`${import.meta.env.BASE_URL}radio-cli-screenshot.png`} alt="RadioCLI in action" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="features" id="features">
+      <div class="container">
+        <h2>Features</h2>
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">&#x1F3A8;</div>
+            <h3>Beautiful Terminal UI</h3>
+            <p>Clean, intuitive interface built with ratatui. Station list and audio visualization side by side.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">&#x1F4CA;</div>
+            <h3>Audio Visualization</h3>
+            <p>Real-time visualization of the playing audio stream right in your terminal.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">&#x1F3B5;</div>
+            <h3>Stream Metadata</h3>
+            <p>Display station name, format, bitrate, and current song information.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">&#x2B50;</div>
+            <h3>Station Management</h3>
+            <p>Save your favorite stations with star marking. Persistent SQLite storage.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">&#x26A1;</div>
+            <h3>Fast & Lightweight</h3>
+            <p>Built in Rust for minimal resource usage. Streams via mpv backend.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">&#x2328;&#xFE0F;</div>
+            <h3>Keyboard Driven</h3>
+            <p>Simple, intuitive keyboard navigation. No mouse needed.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation -->
+    <section class="install" id="install">
+      <div class="container">
+        <h2>Installation</h2>
+
+        <div class="install-method">
+          <h3>Homebrew (macOS & Linux)</h3>
+          <pre><code>brew tap schlunsen/radio-cli https://github.com/schlunsen/radiocli
+brew install radio-cli</code></pre>
+        </div>
+
+        <div class="install-method">
+          <h3>From Source</h3>
+          <pre><code>git clone https://github.com/schlunsen/radiocli.git
+cd radiocli
+cargo install --path .</code></pre>
+        </div>
+
+        <div class="requirements">
+          <h3>Requirements</h3>
+          <ul>
+            <li>Rust and Cargo (<a href="https://rustup.rs/">rustup.rs</a>)</li>
+            <li><a href="https://mpv.io/">mpv</a> media player for audio playback</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Usage -->
+    <section class="usage" id="usage">
+      <div class="container">
+        <h2>Usage</h2>
+        <div class="keybindings">
+          <table>
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>&uarr;</kbd> / <kbd>&darr;</kbd></td><td>Navigate through stations</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Play selected station</td></tr>
+              <tr><td><kbd>s</kbd></td><td>Stop playback</td></tr>
+              <tr><td><kbd>f</kbd></td><td>Toggle favorite status</td></tr>
+              <tr><td><kbd>q</kbd></td><td>Quit application</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <div class="container">
+        <p>
+          Built by <a href="https://github.com/schlunsen">schlunsen</a> &middot;
+          <a href="https://github.com/schlunsen/radio-cli">Source Code</a> &middot;
+          MIT License
+        </p>
+      </div>
+    </footer>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  /* Hero */
+  .hero {
+    padding: 6rem 0 3rem;
+    text-align: center;
+  }
+
+  .hero-badge {
+    display: inline-block;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .hero h1 {
+    font-size: 3.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 1rem;
+  }
+
+  .hero h1 .emoji {
+    font-style: normal;
+  }
+
+  .tagline {
+    font-size: 1.15rem;
+    color: var(--text-muted);
+    max-width: 500px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.6;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.65rem 1.75rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--green);
+    color: #0a0a0a;
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--text-muted);
+    transform: translateY(-1px);
+  }
+
+  /* Screenshot */
+  .screenshot {
+    padding: 2rem 0 4rem;
+  }
+
+  .terminal-window {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  }
+
+  .terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .dot.red { background: #ff5f57; }
+  .dot.yellow { background: #febc2e; }
+  .dot.green { background: #28c840; }
+
+  .terminal-title {
+    margin-left: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .terminal-window img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* Features */
+  .features {
+    padding: 4rem 0;
+  }
+
+  .features h2 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.25rem;
+  }
+
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    transition: border-color 0.2s;
+  }
+
+  .feature-card:hover {
+    border-color: var(--green-dim);
+  }
+
+  .feature-icon {
+    font-size: 1.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .feature-card h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--green);
+  }
+
+  .feature-card p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* Install */
+  .install {
+    padding: 4rem 0;
+  }
+
+  .install h2 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .install-method {
+    margin-bottom: 2rem;
+  }
+
+  .install-method h3,
+  .requirements h3 {
+    font-size: 1.1rem;
+    color: var(--green);
+    margin-bottom: 0.75rem;
+  }
+
+  .requirements ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .requirements li {
+    padding: 0.4rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  .requirements li::before {
+    content: '>';
+    color: var(--green);
+    margin-right: 0.75rem;
+    font-weight: bold;
+  }
+
+  /* Usage */
+  .usage {
+    padding: 4rem 0;
+  }
+
+  .usage h2 {
+    text-align: center;
+    font-size: 2rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .keybindings {
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--green);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  td {
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+
+  kbd {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15em 0.5em;
+    font-family: inherit;
+    font-size: 0.85em;
+  }
+
+  /* Footer */
+  footer {
+    padding: 3rem 0;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+  }
+
+  footer p {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  @media (max-width: 600px) {
+    .hero h1 {
+      font-size: 2.25rem;
+    }
+
+    .tagline {
+      font-size: 1rem;
+    }
+
+    .feature-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

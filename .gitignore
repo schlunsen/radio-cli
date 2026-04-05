@@ -1,4 +1,9 @@
 *.db
 target/
 
+# Astro / Node
+docs/node_modules/
+docs/dist/
+docs/.astro/
+
 **/.claude/settings.local.json

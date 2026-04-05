@@ -23,15 +23,19 @@ check: format-check lint
 
 # Build the project
 build:
-    cargo build
+    cargo build --bin radio_cli
 
 # Run the project
 run:
-    cargo run
+    cargo run --bin radio_cli
+
+# Run with visualizations enabled
+run-vis:
+    cargo run --bin radio_cli -- --vis
 
 # Build release version
 release:
-    cargo build --release
+    cargo build --release --bin radio_cli
 
 # Run tests
 test:

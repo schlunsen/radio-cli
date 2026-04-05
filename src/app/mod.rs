@@ -2,35 +2,20 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::audio::{AudioVisualizer, Player};
 use crate::db::{toggle_favorite, update_station_stats, Station};
 use crate::ui;
 use crate::visualizations::VisualizationManager;
-use rusqlite::params;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use lazy_static::lazy_static;
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 use rusqlite::Connection;
-
-// Global application state for UI components to access
-lazy_static! {
-    pub static ref APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
-}
-
-// A simplified version of App for UI access
-pub struct AppState {
-    pub edit_station_name: String,
-    pub edit_station_url: String,
-    pub edit_station_desc: String,
-}
 
 // Add an enum for app modes
 #[derive(PartialEq)]
@@ -75,6 +60,8 @@ pub struct App {
     pub search_results: Vec<Station>, // Filtered search results
     pub search_list_state: ListState, // State for search results list pane
     pub show_visualizations: bool, // Whether to show visualizations (false = show stats instead)
+    pub dirty: bool,          // Whether the UI needs redrawing
+    pub tokio_runtime: Option<tokio::runtime::Runtime>, // Reusable tokio runtime
 }
 
 impl App {
@@ -114,6 +101,9 @@ impl App {
         let mut vis_menu_state = ListState::default();
         vis_menu_state.select(Some(0)); // Select first visualization by default
 
+        // Create a reusable tokio runtime
+        let tokio_runtime = tokio::runtime::Runtime::new().ok();
+
         Ok(App {
             terminal,
             stations,
@@ -145,6 +135,8 @@ impl App {
             search_results: Vec::new(),
             search_list_state: ListState::default(),
             show_visualizations,
+            dirty: true,
+            tokio_runtime,
         })
     }
 
@@ -159,29 +151,8 @@ impl App {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        // Update global app state for UI components
-        {
-            let mut app_state = APP_STATE.lock().unwrap();
-            *app_state = Some(AppState {
-                edit_station_name: self.edit_station_name.clone(),
-                edit_station_url: self.edit_station_url.clone(),
-                edit_station_desc: self.edit_station_desc.clone(),
-            });
-        }
-
         // Main event loop
         loop {
-            // Update global app state with latest values
-            {
-                if let Ok(mut app_state) = APP_STATE.lock() {
-                    if let Some(state) = app_state.as_mut() {
-                        state.edit_station_name = self.edit_station_name.clone();
-                        state.edit_station_url = self.edit_station_url.clone();
-                        state.edit_station_desc = self.edit_station_desc.clone();
-                    }
-                }
-            }
-
             // Check if we need to update stats (every 10 seconds)
             if self.current_station_id.is_some()
                 && self.stats_last_update.elapsed() >= Duration::from_secs(10)
@@ -198,33 +169,48 @@ impl App {
                 self.metadata_last_update = Instant::now();
             }
 
-            // Draw the UI
-            self.terminal.draw(|f| {
-                ui::ui(
-                    f,
-                    &self.stations,
-                    &mut self.list_state,
-                    &self.visualizer,
-                    &self.mode,
-                    &self.add_station_name,
-                    &self.add_station_url,
-                    &self.add_station_desc,
-                    self.input_field,
-                    self.input_cursor,
-                    &self.vis_manager,
-                    &mut self.vis_menu_state,
-                    &self.rcast_stations,
-                    &mut self.rcast_list_state,
-                    self.rcast_loading,
-                    self.show_top_stations,
-                    &self.conn,
-                    self.current_station_id,
-                    &self.search_query,
-                    &self.search_results,
-                    &mut self.search_list_state,
-                    self.show_visualizations,
-                )
-            })?;
+            // Only redraw when dirty or when visualizations are active (they animate)
+            let needs_draw = self.dirty || self.show_visualizations;
+
+            if needs_draw {
+                // Capture edit fields for the UI before drawing
+                let edit_name = self.edit_station_name.clone();
+                let edit_url = self.edit_station_url.clone();
+                let edit_desc = self.edit_station_desc.clone();
+
+                // Draw the UI
+                self.terminal.draw(|f| {
+                    ui::ui(
+                        f,
+                        &self.stations,
+                        &mut self.list_state,
+                        &self.visualizer,
+                        &self.mode,
+                        &self.add_station_name,
+                        &self.add_station_url,
+                        &self.add_station_desc,
+                        self.input_field,
+                        self.input_cursor,
+                        &self.vis_manager,
+                        &mut self.vis_menu_state,
+                        &self.rcast_stations,
+                        &mut self.rcast_list_state,
+                        self.rcast_loading,
+                        self.show_top_stations,
+                        &self.conn,
+                        self.current_station_id,
+                        &self.search_query,
+                        &self.search_results,
+                        &mut self.search_list_state,
+                        self.show_visualizations,
+                        &edit_name,
+                        &edit_url,
+                        &edit_desc,
+                    )
+                })?;
+
+                self.dirty = false;
+            }
 
             // Update the visualization
             self.visualizer.update();
@@ -232,6 +218,7 @@ impl App {
             // Handle input
             if crossterm::event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
+                    self.dirty = true; // Any key press means we need to redraw
                     match self.mode {
                         AppMode::Normal => {
                             if self.handle_normal_mode(key)? {
@@ -274,6 +261,57 @@ impl App {
         self.terminal.show_cursor()?;
 
         Ok(())
+    }
+
+    /// Navigate down in a list with wrapping
+    fn navigate_down(list_state: &mut ListState, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let i = match list_state.selected() {
+            Some(i) => {
+                if i >= len - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        list_state.select(Some(i));
+    }
+
+    /// Navigate up in a list with wrapping
+    fn navigate_up(list_state: &mut ListState, len: usize) {
+        if len == 0 {
+            return;
+        }
+        let i = match list_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    len - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        list_state.select(Some(i));
+    }
+
+    /// Navigate by page (jump multiple items)
+    fn navigate_page(list_state: &mut ListState, len: usize, forward: bool) {
+        if len == 0 {
+            return;
+        }
+        let page_size = 10; // Jump 10 items at a time
+        let current = list_state.selected().unwrap_or(0);
+        let new_pos = if forward {
+            (current + page_size).min(len - 1)
+        } else {
+            current.saturating_sub(page_size)
+        };
+        list_state.select(Some(new_pos));
     }
 
     fn handle_normal_mode(
@@ -351,34 +389,31 @@ impl App {
                 self.search_results.clear();
                 self.search_list_state.select(None);
             }
-            KeyCode::Down => {
+            // Vim-style and enhanced navigation
+            KeyCode::Down | KeyCode::Char('j') => {
+                let len = self.stations.len();
+                Self::navigate_down(&mut self.list_state, len);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = self.stations.len();
+                Self::navigate_up(&mut self.list_state, len);
+            }
+            KeyCode::PageDown => {
+                let len = self.stations.len();
+                Self::navigate_page(&mut self.list_state, len, true);
+            }
+            KeyCode::PageUp => {
+                let len = self.stations.len();
+                Self::navigate_page(&mut self.list_state, len, false);
+            }
+            KeyCode::Home => {
                 if !self.stations.is_empty() {
-                    let i = match self.list_state.selected() {
-                        Some(i) => {
-                            if i >= self.stations.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.list_state.select(Some(i));
+                    self.list_state.select(Some(0));
                 }
             }
-            KeyCode::Up => {
+            KeyCode::End => {
                 if !self.stations.is_empty() {
-                    let i = match self.list_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                self.stations.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.list_state.select(Some(i));
+                    self.list_state.select(Some(self.stations.len() - 1));
                 }
             }
             KeyCode::Enter => {
@@ -402,19 +437,19 @@ impl App {
             KeyCode::Char('m') => {
                 // Toggle mute
                 if let Err(e) = self.player.toggle_mute(&self.visualizer) {
-                    eprintln!("Failed to toggle mute: {}", e);
+                    self.visualizer.set_error(format!("Mute failed: {}", e));
                 }
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 // Increase volume
                 if let Err(e) = self.player.volume_up(&self.visualizer) {
-                    eprintln!("Failed to increase volume: {}", e);
+                    self.visualizer.set_error(format!("Volume failed: {}", e));
                 }
             }
             KeyCode::Char('-') => {
                 // Decrease volume
                 if let Err(e) = self.player.volume_down(&self.visualizer) {
-                    eprintln!("Failed to decrease volume: {}", e);
+                    self.visualizer.set_error(format!("Volume failed: {}", e));
                 }
             }
             KeyCode::Char('t') => {
@@ -461,35 +496,13 @@ impl App {
                 }
                 self.mode = AppMode::Normal;
             }
-            KeyCode::Down => {
-                if !visualizations.is_empty() {
-                    let i = match self.vis_menu_state.selected() {
-                        Some(i) => {
-                            if i >= visualizations.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.vis_menu_state.select(Some(i));
-                }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let len = visualizations.len();
+                Self::navigate_down(&mut self.vis_menu_state, len);
             }
-            KeyCode::Up => {
-                if !visualizations.is_empty() {
-                    let i = match self.vis_menu_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                visualizations.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.vis_menu_state.select(Some(i));
-                }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = visualizations.len();
+                Self::navigate_up(&mut self.vis_menu_state, len);
             }
             _ => {}
         }
@@ -788,34 +801,31 @@ impl App {
                     self.list_state.select(Some(0));
                 }
             }
-            KeyCode::Down => {
+            KeyCode::Down | KeyCode::Char('j') => {
+                let len = self.rcast_stations.len();
+                Self::navigate_down(&mut self.rcast_list_state, len);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = self.rcast_stations.len();
+                Self::navigate_up(&mut self.rcast_list_state, len);
+            }
+            KeyCode::PageDown => {
+                let len = self.rcast_stations.len();
+                Self::navigate_page(&mut self.rcast_list_state, len, true);
+            }
+            KeyCode::PageUp => {
+                let len = self.rcast_stations.len();
+                Self::navigate_page(&mut self.rcast_list_state, len, false);
+            }
+            KeyCode::Home => {
                 if !self.rcast_stations.is_empty() {
-                    let i = match self.rcast_list_state.selected() {
-                        Some(i) => {
-                            if i >= self.rcast_stations.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.rcast_list_state.select(Some(i));
+                    self.rcast_list_state.select(Some(0));
                 }
             }
-            KeyCode::Up => {
+            KeyCode::End => {
                 if !self.rcast_stations.is_empty() {
-                    let i = match self.rcast_list_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                self.rcast_stations.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.rcast_list_state.select(Some(i));
+                    self.rcast_list_state
+                        .select(Some(self.rcast_stations.len() - 1));
                 }
             }
             KeyCode::Enter => {
@@ -837,19 +847,19 @@ impl App {
             KeyCode::Char('m') => {
                 // Toggle mute
                 if let Err(e) = self.player.toggle_mute(&self.visualizer) {
-                    eprintln!("Failed to toggle mute: {}", e);
+                    self.visualizer.set_error(format!("Mute failed: {}", e));
                 }
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 // Increase volume
                 if let Err(e) = self.player.volume_up(&self.visualizer) {
-                    eprintln!("Failed to increase volume: {}", e);
+                    self.visualizer.set_error(format!("Volume failed: {}", e));
                 }
             }
             KeyCode::Char('-') => {
                 // Decrease volume
                 if let Err(e) = self.player.volume_down(&self.visualizer) {
-                    eprintln!("Failed to decrease volume: {}", e);
+                    self.visualizer.set_error(format!("Volume failed: {}", e));
                 }
             }
             KeyCode::Char('t') => {
@@ -866,8 +876,8 @@ impl App {
                     if i < self.rcast_stations.len() {
                         let station = &self.rcast_stations[i];
 
-                        // Check if this URL already exists
-                        if self.find_station_id_by_url(&station.url).is_none() {
+                        // Check if this URL already exists using db function
+                        if let Ok(None) = crate::db::find_station_by_url(&self.conn, &station.url) {
                             // Only add the station if the URL doesn't exist yet
                             crate::db::add_station(
                                 &self.conn,
@@ -906,15 +916,25 @@ impl App {
         description: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         // First play the station
-        self.player
-            .play_station(name.to_string(), url.to_string(), &self.visualizer)?;
-
-        // Make sure the visualizer is marked as playing
-        self.visualizer.set_playing(true);
+        match self
+            .player
+            .play_station(name.to_string(), url.to_string(), &self.visualizer)
+        {
+            Ok(()) => {
+                // Make sure the visualizer is marked as playing
+                self.visualizer.set_playing(true);
+            }
+            Err(e) => {
+                // Surface error to UI instead of silently failing
+                self.visualizer.set_error(format!("Playback failed: {}", e));
+                self.current_station_id = None;
+                return Ok(()); // Don't propagate - we showed the error in UI
+            }
+        }
 
         // Then handle the station ID for stats tracking
-        // First check if this URL already exists in the database
-        if let Some(id) = self.find_station_id_by_url(url) {
+        // Use the db module function instead of raw SQL
+        if let Ok(Some(id)) = crate::db::find_station_by_url(&self.conn, url) {
             // URL already exists, use the existing station ID
             self.current_station_id = Some(id);
         } else {
@@ -938,18 +958,6 @@ impl App {
         }
 
         Ok(())
-    }
-
-    // Helper method to find a station ID by its URL
-    fn find_station_id_by_url(&self, url: &str) -> Option<i32> {
-        if let Ok(mut stmt) = self.conn.prepare("SELECT id FROM stations WHERE url = ?1") {
-            if let Ok(id_result) = stmt.query_map(params![url], |row| row.get::<_, i32>(0)) {
-                if let Some(station_id) = id_result.flatten().next() {
-                    return Some(station_id);
-                }
-            }
-        }
-        None
     }
 
     // Handle search mode input events
@@ -989,36 +997,12 @@ impl App {
                 self.update_search_results();
             }
             KeyCode::Down => {
-                // Navigate down in search results
-                if !self.search_results.is_empty() {
-                    let i = match self.search_list_state.selected() {
-                        Some(i) => {
-                            if i >= self.search_results.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.search_list_state.select(Some(i));
-                }
+                let len = self.search_results.len();
+                Self::navigate_down(&mut self.search_list_state, len);
             }
             KeyCode::Up => {
-                // Navigate up in search results
-                if !self.search_results.is_empty() {
-                    let i = match self.search_list_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                self.search_results.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.search_list_state.select(Some(i));
-                }
+                let len = self.search_results.len();
+                Self::navigate_up(&mut self.search_list_state, len);
             }
             _ => {}
         }
@@ -1110,46 +1094,46 @@ impl App {
         self.rcast_loading = true;
         self.rcast_stations.clear();
 
-        // Create a new runtime for async operations
-        match tokio::runtime::Runtime::new() {
-            Ok(rt) => {
-                // Block on the async fetch operation
-                match rt.block_on(crate::rcast::fetch_stations()) {
-                    Ok(stations) => {
-                        // Update stations with fetched data
-                        self.rcast_stations = stations;
+        // Use the reusable runtime, or create a new one if needed
+        let result = if let Some(ref rt) = self.tokio_runtime {
+            rt.block_on(crate::rcast::fetch_stations())
+        } else {
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt.block_on(crate::rcast::fetch_stations()),
+                Err(e) => {
+                    self.rcast_stations.push(crate::rcast::RcastStation {
+                        name: "Error initializing fetcher".to_string(),
+                        url: "".to_string(),
+                        description: Some(format!("Runtime error: {}. Try refreshing with 'r'", e)),
+                        bitrate: None,
+                        genre: None,
+                        listeners: None,
+                    });
+                    self.rcast_loading = false;
+                    return Ok(());
+                }
+            }
+        };
 
-                        // If no stations fetched, add a message station
-                        if self.rcast_stations.is_empty() {
-                            self.rcast_stations.push(crate::rcast::RcastStation {
-                                name: "No stations found".to_string(),
-                                url: "".to_string(),
-                                description: Some("Try refreshing the list with 'r'".to_string()),
-                                bitrate: None,
-                                genre: None,
-                                listeners: None,
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        // Add an error message station
-                        self.rcast_stations.push(crate::rcast::RcastStation {
-                            name: "Error fetching stations".to_string(),
-                            url: "".to_string(),
-                            description: Some(format!("Error: {}. Try refreshing with 'r'", e)),
-                            bitrate: None,
-                            genre: None,
-                            listeners: None,
-                        });
-                    }
+        match result {
+            Ok(stations) => {
+                self.rcast_stations = stations;
+                if self.rcast_stations.is_empty() {
+                    self.rcast_stations.push(crate::rcast::RcastStation {
+                        name: "No stations found".to_string(),
+                        url: "".to_string(),
+                        description: Some("Try refreshing the list with 'r'".to_string()),
+                        bitrate: None,
+                        genre: None,
+                        listeners: None,
+                    });
                 }
             }
             Err(e) => {
-                // Add an error message station
                 self.rcast_stations.push(crate::rcast::RcastStation {
-                    name: "Error initializing fetcher".to_string(),
+                    name: "Error fetching stations".to_string(),
                     url: "".to_string(),
-                    description: Some(format!("Runtime error: {}. Try refreshing with 'r'", e)),
+                    description: Some(format!("Error: {}. Try refreshing with 'r'", e)),
                     bitrate: None,
                     genre: None,
                     listeners: None,
@@ -1189,7 +1173,7 @@ pub fn get_database_path() -> Result<PathBuf, Box<dyn Error>> {
             // If not, use the platform-specific data directory
             #[cfg(target_os = "macos")]
             {
-                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                let mut path = dirs::home_dir().ok_or("Could not find home directory")?;
                 path.push("Library");
                 path.push("Application Support");
                 path.push("radio_cli");
@@ -1197,7 +1181,7 @@ pub fn get_database_path() -> Result<PathBuf, Box<dyn Error>> {
             }
             #[cfg(target_os = "linux")]
             {
-                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                let mut path = dirs::home_dir().ok_or("Could not find home directory")?;
                 path.push(".local");
                 path.push("share");
                 path.push("radio_cli");
@@ -1205,13 +1189,13 @@ pub fn get_database_path() -> Result<PathBuf, Box<dyn Error>> {
             }
             #[cfg(target_os = "windows")]
             {
-                let mut path = dirs_next::data_dir().ok_or("Could not find data directory")?;
+                let mut path = dirs::data_dir().ok_or("Could not find data directory")?;
                 path.push("radio_cli");
                 path
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
             {
-                let mut path = dirs_next::home_dir().ok_or("Could not find home directory")?;
+                let mut path = dirs::home_dir().ok_or("Could not find home directory")?;
                 path.push(".radio_cli");
                 path
             }

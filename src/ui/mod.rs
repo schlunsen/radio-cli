@@ -40,6 +40,9 @@ pub fn ui(
     search_results: &[Station],
     search_list_state: &mut ListState,
     show_visualizations: bool,
+    edit_station_name: &str,
+    edit_station_url: &str,
+    edit_station_desc: &str,
 ) {
     let size = f.size();
 
@@ -58,12 +61,12 @@ pub fn ui(
 
     // Render help area
     let help_text = match mode {
-        AppMode::Normal => "↑/↓: Navigate  ⏎: Play  s: Stop  m: Mute/Unmute  +/-: Volume  f: Favorite  a: Add  e: Edit  d: Delete  t: Toggle Top Stations  v: Vis Menu  V: Toggle Visualizations  /: Search  Tab: RCast  q: Quit",
+        AppMode::Normal => "j/↑ k/↓: Navigate  PgUp/PgDn: Page  Home/End: Jump  ⏎: Play  s: Stop  m: Mute  +/-: Volume  f: Fav  a: Add  e: Edit  d: Del  t: Top  v: Vis Menu  V: Toggle Vis  /: Search  Tab: RCast  q: Quit",
         AppMode::AddingStation => "Tab: Next Field  Enter: Confirm  Esc: Cancel",
         AppMode::EditingStation => "Tab: Next Field  Enter: Save  Esc: Cancel",
         AppMode::DeletingStation => "y: Confirm Delete  n/Esc: Cancel",
-        AppMode::VisualizationMenu => "↑/↓: Navigate  Enter: Select  Esc: Cancel",
-        AppMode::RcastStations => "↑/↓: Navigate  ⏎: Play  m: Mute/Unmute  +/-: Volume  r: Refresh  t: Toggle Top Stations  V: Toggle Visualizations  /: Search  Tab: Main View  q: Quit",
+        AppMode::VisualizationMenu => "j/↑ k/↓: Navigate  Enter: Select  Esc: Cancel",
+        AppMode::RcastStations => "j/↑ k/↓: Navigate  PgUp/PgDn: Page  ⏎: Play  m: Mute  +/-: Vol  r: Refresh  t: Top  V: Toggle Vis  /: Search  Tab: Main  q: Quit",
         AppMode::Searching => "↑/↓: Navigate  ⏎: Play Selected  Esc: Cancel  Type to search...",
     };
 
@@ -147,11 +150,12 @@ pub fn ui(
 
             // Determine what to show in the top area based on visualization setting
             if show_visualizations {
-                // Make the mute status more prominent by adding a symbol
+                // Build status with volume indicator
+                let vol_indicator = format!("Vol: {}%", state.volume);
                 let status_with_symbol = if state.is_muted {
-                    format!("Visualization - {} 🔇", status_text)
+                    format!("Visualization - {} 🔇 {}", status_text, vol_indicator)
                 } else {
-                    format!("Visualization - {} 🔊", status_text)
+                    format!("Visualization - {} 🔊 {}", status_text, vol_indicator)
                 };
 
                 let vis_block = Block::default()
@@ -237,17 +241,21 @@ pub fn ui(
                     }
                     Err(_) => "Error loading top stations stats.".to_string(),
                 }
+            } else if let Some(ref error_msg) = state.error_message {
+                // Show error message prominently
+                format!("⚠ Error: {}", error_msg)
             } else if let Some(info) = &state.stream_info {
                 let unknown = "Unknown".to_string();
                 let song = info.current_song.as_ref().unwrap_or(&unknown);
 
-                // Start with basic stream info
+                // Start with basic stream info including volume
                 let mut text = format!(
-                    "Station: {}\nFormat: {}\nBitrate: {}\nCurrent Song: {}\nMuted: {}",
+                    "Station: {}\nFormat: {}\nBitrate: {}\nCurrent Song: {}\nVolume: {}%  Muted: {}",
                     info.station_name,
                     info.format,
                     info.bitrate,
                     song,
+                    state.volume,
                     if state.is_muted { "Yes" } else { "No" }
                 );
 
@@ -305,11 +313,20 @@ pub fn ui(
 
             let block_title = if show_top_stations {
                 "Top Stations"
+            } else if state.error_message.is_some() {
+                "Error"
             } else {
                 "Stream Info"
             };
 
+            let metadata_style = if state.error_message.is_some() {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default()
+            };
+
             let metadata = Paragraph::new(metadata_text)
+                .style(metadata_style)
                 .block(Block::default().borders(Borders::ALL).title(block_title));
 
             f.render_widget(metadata, vis_chunks[1]);
@@ -431,18 +448,14 @@ pub fn ui(
             );
         }
         AppMode::EditingStation => {
-            if let Ok(app_guard) = crate::app::APP_STATE.lock() {
-                if let Some(app) = app_guard.as_ref() {
-                    popup::render_edit_station_popup(
-                        f,
-                        &app.edit_station_name,
-                        &app.edit_station_url,
-                        &app.edit_station_desc,
-                        input_field,
-                        input_cursor,
-                    );
-                }
-            }
+            popup::render_edit_station_popup(
+                f,
+                edit_station_name,
+                edit_station_url,
+                edit_station_desc,
+                input_field,
+                input_cursor,
+            );
         }
         AppMode::DeletingStation => {
             if let Some(selected) = list_state.selected() {

@@ -237,6 +237,15 @@ pub fn get_top_stations(
     Ok(stations)
 }
 
+pub fn find_station_by_url(conn: &Connection, url: &str) -> Result<Option<i32>, Box<dyn Error>> {
+    let mut stmt = conn.prepare("SELECT id FROM stations WHERE url = ?1")?;
+    let mut rows = stmt.query_map(params![url], |row| row.get::<_, i32>(0))?;
+    if let Some(row) = rows.next() {
+        return Ok(Some(row?));
+    }
+    Ok(None)
+}
+
 pub fn format_play_time(seconds: i64) -> String {
     if seconds < 60 {
         format!("{}s", seconds)
@@ -247,7 +256,7 @@ pub fn format_play_time(seconds: i64) -> String {
     }
 }
 
-// Function to find and remove duplicate URLs in the stations database
+/// Function to find and remove duplicate URLs in the stations database
 pub fn remove_duplicate_urls(conn: &Connection) -> Result<(), Box<dyn Error>> {
     // First find all duplicate URLs
     let mut find_stmt = conn.prepare(
@@ -292,4 +301,190 @@ pub fn remove_duplicate_urls(conn: &Connection) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_test_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
+        init_db(&conn).expect("Failed to initialize database");
+        // Clear default stations for clean tests
+        conn.execute("DELETE FROM stations", []).unwrap();
+        conn.execute("DELETE FROM station_stats", []).unwrap();
+        conn
+    }
+
+    #[test]
+    fn test_add_and_load_stations() {
+        let conn = setup_test_db();
+
+        let id1 = add_station(&conn, "Test Station 1", "http://test1.com", Some("Desc 1")).unwrap();
+        let id2 = add_station(&conn, "Test Station 2", "http://test2.com", None).unwrap();
+
+        assert!(id1 > 0);
+        assert!(id2 > 0);
+        assert_ne!(id1, id2);
+
+        let stations = load_stations(&conn).unwrap();
+        assert_eq!(stations.len(), 2);
+        assert_eq!(stations[0].name, "Test Station 1");
+        assert_eq!(stations[1].url, "http://test2.com");
+        assert_eq!(stations[0].description, Some("Desc 1".to_string()));
+        assert_eq!(stations[1].description, None);
+    }
+
+    #[test]
+    fn test_delete_station() {
+        let conn = setup_test_db();
+
+        let id = add_station(&conn, "To Delete", "http://delete.me", None).unwrap();
+        assert_eq!(load_stations(&conn).unwrap().len(), 1);
+
+        delete_station(&conn, id).unwrap();
+        assert_eq!(load_stations(&conn).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_update_station() {
+        let conn = setup_test_db();
+
+        let id = add_station(&conn, "Original", "http://original.com", None).unwrap();
+        update_station(&conn, id, "Updated", "http://updated.com", Some("New desc")).unwrap();
+
+        let stations = load_stations(&conn).unwrap();
+        assert_eq!(stations[0].name, "Updated");
+        assert_eq!(stations[0].url, "http://updated.com");
+        assert_eq!(stations[0].description, Some("New desc".to_string()));
+    }
+
+    #[test]
+    fn test_toggle_favorite() {
+        let conn = setup_test_db();
+
+        let id = add_station(&conn, "Fav Test", "http://fav.com", None).unwrap();
+
+        let stations = load_stations(&conn).unwrap();
+        assert!(!stations[0].favorite);
+
+        toggle_favorite(&conn, id, true).unwrap();
+        let stations = load_stations(&conn).unwrap();
+        assert!(stations[0].favorite);
+
+        toggle_favorite(&conn, id, false).unwrap();
+        let stations = load_stations(&conn).unwrap();
+        assert!(!stations[0].favorite);
+    }
+
+    #[test]
+    fn test_remove_duplicate_urls() {
+        let conn = setup_test_db();
+
+        add_station(&conn, "Station 1", "http://test1.com", Some("Test 1")).unwrap();
+        add_station(&conn, "Station 2", "http://test2.com", Some("Test 2")).unwrap();
+
+        // Insert duplicates directly via SQL to bypass normal checks
+        conn.execute(
+            "INSERT INTO stations (name, url, description) VALUES (?1, ?2, ?3)",
+            params![
+                "Station 1 Duplicate",
+                "http://test1.com",
+                "Duplicate of Test 1"
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO stations (name, url, description) VALUES (?1, ?2, ?3)",
+            params![
+                "Station 2 Duplicate",
+                "http://test2.com",
+                "Duplicate of Test 2"
+            ],
+        )
+        .unwrap();
+
+        let count_before: i32 = conn
+            .query_row("SELECT COUNT(*) FROM stations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count_before, 4);
+
+        remove_duplicate_urls(&conn).unwrap();
+
+        let count_after: i32 = conn
+            .query_row("SELECT COUNT(*) FROM stations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count_after, 2);
+    }
+
+    #[test]
+    fn test_station_stats() {
+        let conn = setup_test_db();
+
+        let id = add_station(&conn, "Stats Test", "http://stats.com", None).unwrap();
+
+        // No stats initially
+        let stats = get_station_stats(&conn, id).unwrap();
+        assert!(stats.is_none());
+
+        // Add play time
+        update_station_stats(&conn, id, 60).unwrap();
+        let stats = get_station_stats(&conn, id).unwrap().unwrap();
+        assert_eq!(stats.total_play_time, 60);
+        assert!(stats.last_played.is_some());
+
+        // Accumulate play time
+        update_station_stats(&conn, id, 30).unwrap();
+        let stats = get_station_stats(&conn, id).unwrap().unwrap();
+        assert_eq!(stats.total_play_time, 90);
+    }
+
+    #[test]
+    fn test_get_top_stations() {
+        let conn = setup_test_db();
+
+        let id1 = add_station(&conn, "Low Play", "http://low.com", None).unwrap();
+        let id2 = add_station(&conn, "High Play", "http://high.com", None).unwrap();
+        let id3 = add_station(&conn, "Mid Play", "http://mid.com", None).unwrap();
+
+        update_station_stats(&conn, id1, 10).unwrap();
+        update_station_stats(&conn, id2, 100).unwrap();
+        update_station_stats(&conn, id3, 50).unwrap();
+
+        let top = get_top_stations(&conn, 2).unwrap();
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].0.name, "High Play");
+        assert_eq!(top[0].1, 100);
+        assert_eq!(top[1].0.name, "Mid Play");
+        assert_eq!(top[1].1, 50);
+    }
+
+    #[test]
+    fn test_find_station_by_url() {
+        let conn = setup_test_db();
+
+        let id = add_station(&conn, "Find Me", "http://findme.com", None).unwrap();
+
+        assert_eq!(
+            find_station_by_url(&conn, "http://findme.com").unwrap(),
+            Some(id)
+        );
+        assert_eq!(
+            find_station_by_url(&conn, "http://notfound.com").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_format_play_time() {
+        assert_eq!(format_play_time(0), "0s");
+        assert_eq!(format_play_time(30), "30s");
+        assert_eq!(format_play_time(59), "59s");
+        assert_eq!(format_play_time(60), "1m 0s");
+        assert_eq!(format_play_time(90), "1m 30s");
+        assert_eq!(format_play_time(3599), "59m 59s");
+        assert_eq!(format_play_time(3600), "1h 0m");
+        assert_eq!(format_play_time(7260), "2h 1m");
+    }
 }

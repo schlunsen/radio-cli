@@ -1,7 +1,7 @@
 use super::Visualization;
 use crate::audio::AudioState;
 use ratatui::style::Color;
-use ratatui::widgets::canvas::{Context, Line};
+use ratatui::widgets::canvas::{Context, Line, Rectangle};
 use std::f64::consts::PI;
 
 pub struct WaveFormsVisualization;
@@ -28,19 +28,14 @@ impl Visualization for WaveFormsVisualization {
     }
 
     fn render(&self, ctx: &mut Context, state: &AudioState) {
-        // Background - gradient from dark blue to black
-        for y in 0..100 {
-            let color_intensity = (100 - y) as f64 * 0.2;
-            let color = Color::Rgb(0, 0, (color_intensity as u8).max(5));
-
-            ctx.draw(&Line {
-                x1: 0.0,
-                y1: y as f64,
-                x2: 100.0,
-                y2: y as f64,
-                color,
-            });
-        }
+        // Background - single dark rectangle instead of 100 individual lines
+        ctx.draw(&Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+            color: Color::Rgb(0, 0, 5),
+        });
 
         if state.is_playing {
             // Draw horizontal grid lines

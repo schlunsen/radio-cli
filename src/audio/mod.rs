@@ -1,10 +1,9 @@
 use rand::Rng;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write as IoWrite};
+use std::os::unix::net::UnixStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-// No need for PI constant in this version
 
 #[derive(Clone)]
 pub struct StreamInfo {
@@ -32,8 +31,9 @@ pub struct AudioState {
     pub is_muted: bool,
     pub volume: u8, // Volume level (0-100)
     pub stream_info: Option<StreamInfo>,
-    pub frame_count: u64, // Count frames for animations
-    pub warp_speed: f64,  // Speed factor for the starfield (0.5-3.0)
+    pub frame_count: u64,              // Count frames for animations
+    pub warp_speed: f64,               // Speed factor for the starfield (0.5-3.0)
+    pub error_message: Option<String>, // Error message to display in UI
 }
 
 impl Default for AudioState {
@@ -69,6 +69,7 @@ impl AudioState {
             stream_info: None,
             frame_count: 0,
             warp_speed: 1.0,
+            error_message: None,
         }
     }
 
@@ -76,6 +77,11 @@ impl AudioState {
         // Increment frame counter
         self.frame_count += 1;
         let mut rng = rand::thread_rng();
+
+        // Clear error messages after a few seconds (roughly 5 seconds at 60fps)
+        if self.error_message.is_some() && self.frame_count % 300 == 0 {
+            self.error_message = None;
+        }
 
         if self.is_playing {
             // 1. Update bass impact - affects starfield speed
@@ -186,6 +192,12 @@ impl AudioVisualizer {
         }
     }
 
+    pub fn set_error(&self, message: String) {
+        if let Ok(mut state) = self.state.lock() {
+            state.error_message = Some(message);
+        }
+    }
+
     // Increase volume
     pub fn increase_volume(&self) {
         if let Ok(mut state) = self.state.lock() {
@@ -241,9 +253,22 @@ impl AudioVisualizer {
     }
 }
 
+/// Send a JSON command to mpv via its IPC socket
+fn send_mpv_command(socket_path: &str, command: &str) -> Result<(), String> {
+    let mut stream = UnixStream::connect(socket_path)
+        .map_err(|e| format!("Failed to connect to mpv socket: {}", e))?;
+    // mpv IPC protocol: send JSON command followed by newline
+    let cmd = format!("{{ \"command\": [{}] }}\n", command);
+    stream
+        .write_all(cmd.as_bytes())
+        .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
+    Ok(())
+}
+
 pub struct Player {
     pub current_player: Option<Child>,
     pub is_muted: bool,
+    socket_path: Option<String>, // Path to the mpv IPC socket
 }
 
 impl Default for Player {
@@ -257,6 +282,7 @@ impl Player {
         Player {
             current_player: None,
             is_muted: false,
+            socket_path: None,
         }
     }
 
@@ -288,113 +314,144 @@ impl Player {
         }
 
         #[cfg(not(feature = "skip_mpv"))]
-        match Command::new("mpv")
-            .arg("--term-status-msg=STATUS: ${metadata/StreamTitle:} FORMAT: ${audio-codec} BITRATE: ${audio-bitrate}")
-            .arg("--input-ipc-server=/tmp/mpvsocket_$$") // Create a socket for control, $$ is replaced with PID
-            .arg(url)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn() {
-            Ok(mut child) => {
-                // Get the stdout to read from it
-                let stdout = child.stdout.take().expect("Failed to get stdout");
+        {
+            // Generate a unique socket path using the current process ID and a timestamp
+            // to avoid conflicts between successive spawns
+            let socket = format!(
+                "/tmp/mpvsocket_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            );
 
-                // Set initial stream info
-                visualizer.set_stream_info(
-                    station_name.clone(),
-                    "Detecting...".to_string(),
-                    "Detecting...".to_string()
-                );
-                visualizer.set_playing(true);
+            match Command::new("mpv")
+                .arg("--term-status-msg=STATUS: ${metadata/StreamTitle:} FORMAT: ${audio-codec} BITRATE: ${audio-bitrate}")
+                .arg(format!("--input-ipc-server={}", socket))
+                .arg("--no-video")
+                .arg(&url)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    // Get the stdout to read from it
+                    let stdout = child.stdout.take().expect("Failed to get stdout");
 
-                // Spawn a thread to read mpv output
-                let vis_state = Arc::clone(&state_handle);
-                thread::spawn(move || {
-                    let reader = BufReader::new(stdout);
-                    for line in reader.lines().map_while(Result::ok) {
-                        // Parse the line for stream metadata
-                        if line.starts_with("STATUS:") {
-                            if let Ok(mut state) = vis_state.lock() {
-                                // More robust metadata extraction
-                                let line_str = line.trim_start_matches("STATUS: ");
+                    // Set initial stream info
+                    visualizer.set_stream_info(
+                        station_name.clone(),
+                        "Detecting...".to_string(),
+                        "Detecting...".to_string(),
+                    );
+                    visualizer.set_playing(true);
 
-                                // Find FORMAT: and BITRATE: sections more reliably
-                                let mut format = "Unknown".to_string();
-                                let mut bitrate = "Unknown".to_string();
-                                let mut song = None;
+                    // Clear any previous error
+                    if let Ok(mut state) = visualizer.state.lock() {
+                        state.error_message = None;
+                    }
 
-                                // Extract format
-                                if let Some(format_idx) = line_str.find("FORMAT:") {
-                                    // Find the end of the format value (next keyword or end of string)
-                                    let format_start = format_idx + "FORMAT:".len();
-                                    let format_end = line_str[format_start..]
-                                        .find("BITRATE:")
-                                        .map_or(line_str.len(), |pos| format_start + pos);
+                    // Store the socket path
+                    self.socket_path = Some(socket);
 
-                                    // Extract and trim the format value
-                                    format = line_str[format_start..format_end].trim().to_string();
-                                }
+                    // Spawn a thread to read mpv output
+                    let vis_state = Arc::clone(&state_handle);
+                    thread::spawn(move || {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines().map_while(Result::ok) {
+                            // Parse the line for stream metadata
+                            if line.starts_with("STATUS:") {
+                                if let Ok(mut state) = vis_state.lock() {
+                                    // More robust metadata extraction
+                                    let line_str = line.trim_start_matches("STATUS: ");
 
-                                // Extract bitrate
-                                if let Some(bitrate_idx) = line_str.find("BITRATE:") {
-                                    // Get the rest of the line after BITRATE:
-                                    let bitrate_start = bitrate_idx + "BITRATE:".len();
-                                    let bitrate_value = line_str[bitrate_start..].trim();
+                                    // Find FORMAT: and BITRATE: sections more reliably
+                                    let mut format = "Unknown".to_string();
+                                    let mut bitrate = "Unknown".to_string();
+                                    let mut song = None;
 
-                                    // Check if the bitrate value is not empty
-                                    if !bitrate_value.is_empty() {
-                                        bitrate = format!("{} kbps", bitrate_value);
+                                    // Extract format
+                                    if let Some(format_idx) = line_str.find("FORMAT:") {
+                                        // Find the end of the format value (next keyword or end of string)
+                                        let format_start = format_idx + "FORMAT:".len();
+                                        let format_end = line_str[format_start..]
+                                            .find("BITRATE:")
+                                            .map_or(line_str.len(), |pos| format_start + pos);
+
+                                        // Extract and trim the format value
+                                        format =
+                                            line_str[format_start..format_end].trim().to_string();
                                     }
-                                }
 
-                                // Extract song
-                                // The song title is everything before FORMAT: or BITRATE:, whichever comes first
-                                let first_keyword = std::cmp::min(
-                                    line_str.find("FORMAT:").unwrap_or(line_str.len()),
-                                    line_str.find("BITRATE:").unwrap_or(line_str.len())
-                                );
-                                let potential_song = line_str[..first_keyword].trim();
-                                if !potential_song.is_empty() {
-                                    song = Some(potential_song.to_string());
-                                }
+                                    // Extract bitrate
+                                    if let Some(bitrate_idx) = line_str.find("BITRATE:") {
+                                        // Get the rest of the line after BITRATE:
+                                        let bitrate_start = bitrate_idx + "BITRATE:".len();
+                                        let bitrate_value = line_str[bitrate_start..].trim();
 
-                                // Update the stream info
-                                if let Some(info) = &mut state.stream_info {
-                                    info.format = format;
-                                    info.bitrate = bitrate;
-                                    info.current_song = song;
+                                        // Check if the bitrate value is not empty
+                                        if !bitrate_value.is_empty() {
+                                            bitrate = format!("{} kbps", bitrate_value);
+                                        }
+                                    }
+
+                                    // Extract song
+                                    // The song title is everything before FORMAT: or BITRATE:, whichever comes first
+                                    let first_keyword = std::cmp::min(
+                                        line_str.find("FORMAT:").unwrap_or(line_str.len()),
+                                        line_str.find("BITRATE:").unwrap_or(line_str.len()),
+                                    );
+                                    let potential_song = line_str[..first_keyword].trim();
+                                    if !potential_song.is_empty() {
+                                        song = Some(potential_song.to_string());
+                                    }
+
+                                    // Update the stream info
+                                    if let Some(info) = &mut state.stream_info {
+                                        info.format = format;
+                                        info.bitrate = bitrate;
+                                        info.current_song = song;
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                    });
 
-                self.current_player = Some(child);
-                Ok(())
-            },
-            Err(e) => {
-                eprintln!("Failed to start player: {} (make sure mpv is installed)", e);
-                visualizer.set_stream_info(
-                    station_name,
-                    "Error".to_string(),
-                    format!("Failed to start: {}", e)
-                );
-                Err(e.to_string())
-            },
+                    self.current_player = Some(child);
+                    Ok(())
+                }
+                Err(e) => {
+                    let error_msg = if e.kind() == std::io::ErrorKind::NotFound {
+                        "mpv not found. Please install mpv to play radio stations.".to_string()
+                    } else {
+                        format!("Failed to start player: {}", e)
+                    };
+                    visualizer.set_error(error_msg.clone());
+                    Err(error_msg)
+                }
+            }
         }
     }
 
     pub fn stop(&mut self) {
         #[cfg(not(feature = "skip_mpv"))]
         if let Some(mut player) = self.current_player.take() {
-            // Kill the player process
+            // Kill the player process and wait to reap it (prevent zombies)
             let _ = player.kill();
+            let _ = player.wait();
         }
 
         #[cfg(feature = "skip_mpv")]
         {
             // Nothing to stop in simulation mode
             self.current_player = None;
+        }
+
+        // Clean up the socket file
+        if let Some(ref socket) = self.socket_path {
+            let _ = std::fs::remove_file(socket);
+            self.socket_path = None;
         }
 
         // Reset the mute state when stopping
@@ -416,67 +473,15 @@ impl Player {
         }
 
         #[cfg(not(feature = "skip_mpv"))]
-        if let Some(child) = &mut self.current_player {
-            // Try to send a mute command to the MPV process using echo
-            // This works by sending 'm' command to the input pipe
-
-            // We'll try to use echo or printf with a pipe to mpv
-            // This is safer and works across different platforms
-
-            #[cfg(target_os = "macos")]
-            let mute_result = {
-                // On macOS, just update the visual indicator without actually muting
-                // This is because macOS process control is more restrictive
-                Ok(())
-            };
-
-            #[cfg(target_os = "linux")]
-            let mute_result = {
-                // On Linux, we can try to send a command to MPV's input pipe if it exists
-                // Try to find the mpv socket if it exists
-                let player_pid = child.id();
-                if let Some(pid) = Some(player_pid) {
-                    // MPV creates socket in /tmp/
-                    if let Ok(sockets) = std::fs::read_dir("/tmp") {
-                        for entry in sockets.filter_map(Result::ok) {
-                            if let Ok(fname) = entry.file_name().into_string() {
-                                if fname.starts_with(&format!("mpvsocket_{}", pid)) {
-                                    // Found the socket, try to send a mute command
-                                    let result = std::process::Command::new("echo")
-                                        .arg("cycle mute")
-                                        .arg("|")
-                                        .arg("socat")
-                                        .arg("-")
-                                        .arg(format!("UNIX-CONNECT:/tmp/{}", fname))
-                                        .status();
-
-                                    if result.is_err() {
-                                        eprintln!("Failed to send mute command to MPV socket");
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
+        if self.current_player.is_some() {
+            // Send mute toggle command via IPC socket
+            if let Some(ref socket) = self.socket_path {
+                if let Err(e) = send_mpv_command(socket, "\"cycle\", \"mute\"") {
+                    // Log but don't fail - mute state is still tracked visually
+                    eprintln!("Warning: Could not send mute command to mpv: {}", e);
                 }
-                // Even if we fail to send the actual command, return OK for the UI
-                Ok(())
-            };
-
-            #[cfg(target_os = "windows")]
-            let mute_result = {
-                // On Windows, just update the visual indicator
-                Ok(())
-            };
-
-            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-            let mute_result = {
-                // For other platforms, just update the visual indicator
-                Ok(())
-            };
-
-            // Return the result, but for most platforms this will just be a visual mute
-            mute_result
+            }
+            Ok(())
         } else {
             Err("No player is currently running".to_string())
         }
@@ -502,31 +507,11 @@ impl Player {
         }
 
         #[cfg(not(feature = "skip_mpv"))]
-        if let Some(child) = &mut self.current_player {
-            // Try to send a volume-up command to MPV
-            // This is a visual-only change for most platforms
-            eprintln!("Volume up");
-
-            #[cfg(target_os = "linux")]
-            {
-                // On Linux, try to send volume command to MPV's socket if it exists
-                let id = child.id();
-                if let Ok(sockets) = std::fs::read_dir("/tmp") {
-                    for entry in sockets.filter_map(Result::ok) {
-                        if let Ok(fname) = entry.file_name().into_string() {
-                            if fname.starts_with(&format!("mpvsocket_{}", id)) {
-                                // Found the socket, try to send a volume command
-                                let _ = std::process::Command::new("echo")
-                                    .arg("add volume 5")
-                                    .arg("|")
-                                    .arg("socat")
-                                    .arg("-")
-                                    .arg(format!("UNIX-CONNECT:/tmp/{}", fname))
-                                    .status();
-                                break;
-                            }
-                        }
-                    }
+        if self.current_player.is_some() {
+            // Send volume up command via IPC socket
+            if let Some(ref socket) = self.socket_path {
+                if let Err(e) = send_mpv_command(socket, "\"add\", \"volume\", \"5\"") {
+                    eprintln!("Warning: Could not send volume command to mpv: {}", e);
                 }
             }
 
@@ -549,31 +534,11 @@ impl Player {
         }
 
         #[cfg(not(feature = "skip_mpv"))]
-        if let Some(child) = &mut self.current_player {
-            // Try to send a volume-down command to MPV
-            // This is a visual-only change for most platforms
-            eprintln!("Volume down");
-
-            #[cfg(target_os = "linux")]
-            {
-                // On Linux, try to send volume command to MPV's socket if it exists
-                let id = child.id();
-                if let Ok(sockets) = std::fs::read_dir("/tmp") {
-                    for entry in sockets.filter_map(Result::ok) {
-                        if let Ok(fname) = entry.file_name().into_string() {
-                            if fname.starts_with(&format!("mpvsocket_{}", id)) {
-                                // Found the socket, try to send a volume command
-                                let _ = std::process::Command::new("echo")
-                                    .arg("add volume -5")
-                                    .arg("|")
-                                    .arg("socat")
-                                    .arg("-")
-                                    .arg(format!("UNIX-CONNECT:/tmp/{}", fname))
-                                    .status();
-                                break;
-                            }
-                        }
-                    }
+        if self.current_player.is_some() {
+            // Send volume down command via IPC socket
+            if let Some(ref socket) = self.socket_path {
+                if let Err(e) = send_mpv_command(socket, "\"add\", \"volume\", \"-5\"") {
+                    eprintln!("Warning: Could not send volume command to mpv: {}", e);
                 }
             }
 
@@ -583,5 +548,11 @@ impl Player {
         } else {
             Err("No player is currently running".to_string())
         }
+    }
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        self.stop();
     }
 }

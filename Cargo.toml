@@ -16,14 +16,15 @@ default = []
 skip_mpv = []
 
 [dependencies]
-rusqlite = "0.26"
+rusqlite = "0.31"
 crossterm = "0.26"
 ratatui = "0.24"
 rand = "0.8"
-dirs-next = "2.0"
-lazy_static = "1.4"
+dirs = "5"
 reqwest = { version = "0.12.15", features = ["json"] }
-tokio = { version = "1.45.0", features = ["full"] }
-scraper = "0.18.1"
-futures = "0.3"
+tokio = { version = "1.45.0", features = ["rt", "rt-multi-thread", "macros"] }
+thiserror = "1"
 chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

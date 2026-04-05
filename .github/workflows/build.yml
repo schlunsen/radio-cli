@@ -32,7 +32,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      
+
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -59,7 +59,7 @@ jobs:
           if [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
             rustup target add aarch64-apple-darwin
           fi
-      
+
       - name: Build
         run: |
           cargo build --release --target ${{ matrix.target }}
@@ -74,9 +74,65 @@ jobs:
           path: ${{ matrix.asset_name }}.tar.gz
           if-no-files-found: error
 
+  build-mac-app:
+    name: Build RadioMac.dmg
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build RadioMac (Release)
+        run: |
+          xcodebuild -project mac_app/radio-mac/radio-mac.xcodeproj \
+            -scheme radio-mac \
+            -configuration Release \
+            -derivedDataPath build \
+            -arch arm64 -arch x86_64 \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Create DMG
+        run: |
+          APP_PATH="build/Build/Products/Release/radio-mac.app"
+
+          # Verify the app was built
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: radio-mac.app not found at $APP_PATH"
+            find build -name "*.app" -type d
+            exit 1
+          fi
+
+          # Create a staging directory for the DMG contents
+          DMG_DIR="dmg-staging"
+          mkdir -p "$DMG_DIR"
+          cp -R "$APP_PATH" "$DMG_DIR/RadioMac.app"
+
+          # Create a symlink to /Applications for drag-install
+          ln -s /Applications "$DMG_DIR/Applications"
+
+          # Create the DMG
+          hdiutil create -volname "RadioMac" \
+            -srcfolder "$DMG_DIR" \
+            -ov -format UDZO \
+            "RadioMac.dmg"
+
+          # Verify
+          ls -lh RadioMac.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RadioMac-dmg
+          path: RadioMac.dmg
+          if-no-files-found: error
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, build-mac-app]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -89,7 +145,7 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: List downloaded files
-        run: find . -type f -name "*.tar.gz" -o -name "*.zip" | sort
+        run: find . -type f \( -name "*.tar.gz" -o -name "*.dmg" \) | sort
 
       - name: Create Release
         id: create_release
@@ -99,5 +155,6 @@ jobs:
           prerelease: false
           files: |
             **/radio_cli-*.tar.gz
+            **/RadioMac.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

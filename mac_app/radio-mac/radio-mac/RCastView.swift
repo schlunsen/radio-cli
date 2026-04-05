@@ -4,36 +4,60 @@ struct RCastView: View {
     @Environment(StationStore.self) private var stationStore
     @Environment(AudioManager.self) private var audioManager
 
-    @State private var rcastStations: [RcastStation] = []
+    @State private var stations: [RadioBrowserStation] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var selectedTag = "all"
 
-    private var filteredStations: [RcastStation] {
-        if searchText.isEmpty { return rcastStations }
+    private let tagOptions = [
+        "all", "pop", "rock", "jazz", "classical", "electronic",
+        "hiphop", "ambient", "chillout", "news", "talk", "lounge"
+    ]
+
+    private var filteredStations: [RadioBrowserStation] {
+        if searchText.isEmpty { return stations }
         let query = searchText.lowercased()
-        return rcastStations.filter {
+        return stations.filter {
             $0.name.lowercased().contains(query) ||
-            ($0.description?.lowercased().contains(query) ?? false)
+            ($0.tags?.lowercased().contains(query) ?? false) ||
+            ($0.country?.lowercased().contains(query) ?? false)
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search RCast stations...", text: $searchText)
-                    .textFieldStyle(.plain)
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+            // Search + filter bar
+            VStack(spacing: 6) {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search stations...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .onSubmit { Task { await searchStations() } }
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(tagOptions, id: \.self) { tag in
+                            Button(tag.capitalized) {
+                                selectedTag = tag
+                                Task { await loadStations() }
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(selectedTag == tag ? .accentColor : .secondary)
+                            .controlSize(.small)
+                        }
+                    }
                 }
             }
             .padding(8)
@@ -41,7 +65,7 @@ struct RCastView: View {
 
             if isLoading {
                 Spacer()
-                ProgressView("Loading stations from RCast...")
+                ProgressView("Loading stations...")
                 Spacer()
             } else if let error = errorMessage {
                 Spacer()
@@ -51,10 +75,12 @@ struct RCastView: View {
                         .foregroundStyle(.secondary)
                     Text(error)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                     Button("Retry") {
                         Task { await loadStations() }
                     }
                 }
+                .padding()
                 Spacer()
             } else if filteredStations.isEmpty {
                 Spacer()
@@ -63,7 +89,10 @@ struct RCastView: View {
                 Spacer()
             } else {
                 List(filteredStations) { station in
-                    RCastStationRow(station: station, isInLibrary: stationStore.findStationByURL(station.url) != nil) {
+                    BrowseStationRow(
+                        station: station,
+                        isInLibrary: stationStore.findStationByURL(station.url) != nil
+                    ) {
                         audioManager.play(station: Station(
                             id: -1, name: station.name, url: station.url,
                             favorite: false, description: station.description
@@ -93,7 +122,7 @@ struct RCastView: View {
             }
         }
         .task {
-            if rcastStations.isEmpty {
+            if stations.isEmpty {
                 await loadStations()
             }
         }
@@ -103,8 +132,33 @@ struct RCastView: View {
         isLoading = true
         errorMessage = nil
         do {
-            let stations = try await fetchRCastStations()
-            rcastStations = stations
+            var filter = RadioBrowserFilter()
+            if selectedTag != "all" {
+                filter.tag = selectedTag
+            }
+            let result = try await fetchRadioBrowserStations(filter: filter)
+            stations = result
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func searchStations() async {
+        guard !searchText.isEmpty else {
+            await loadStations()
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        do {
+            var filter = RadioBrowserFilter()
+            filter.name = searchText
+            if selectedTag != "all" {
+                filter.tag = selectedTag
+            }
+            let result = try await fetchRadioBrowserStations(filter: filter)
+            stations = result
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -112,10 +166,10 @@ struct RCastView: View {
     }
 }
 
-// MARK: - RCast Station Row
+// MARK: - Browse Station Row
 
-struct RCastStationRow: View {
-    let station: RcastStation
+struct BrowseStationRow: View {
+    let station: RadioBrowserStation
     let isInLibrary: Bool
     let onPlay: () -> Void
     let onAdd: () -> Void
@@ -127,20 +181,22 @@ struct RCastStationRow: View {
                     .font(.body)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                if let desc = station.description {
-                    Text(desc)
+
+                if !station.description.isEmpty {
+                    Text(station.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
                 HStack(spacing: 8) {
-                    if let bitrate = station.bitrate {
-                        Text(bitrate)
+                    if let clicks = station.clickcount, clicks > 0 {
+                        Label("\(clicks)", systemImage: "hand.tap")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    if let listeners = station.listeners {
-                        Text("\(listeners) listeners")
+                    if let votes = station.votes, votes > 0 {
+                        Label("\(votes)", systemImage: "heart")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }

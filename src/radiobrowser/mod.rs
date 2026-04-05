@@ -79,7 +79,7 @@ pub async fn fetch_stations(
     let base = "https://de1.api.radio-browser.info/json/stations/search";
 
     let client = reqwest::Client::builder()
-        .user_agent("RadioCLI/1.3.7 (github.com/schlunsen/radio-cli)")
+        .user_agent("RadioCLI/1.4.0 (github.com/schlunsen/radio-cli)")
         .build()
         .map_err(|e| RadioBrowserError::NetworkError(e.to_string()))?;
 
